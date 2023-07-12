@@ -1,11 +1,11 @@
 {
-	"id": "sample-plugin",
-	"name": "Sample Plugin",
-	"version": "1.0.0",
+	"id": "obsidian-memex",
+	"name": "✨ Obsidian Memex",
+	"version": "0.1.0",
 	"minAppVersion": "0.15.0",
-	"description": "This is a sample plugin for Obsidian. This plugin demonstrates some of the capabilities of the Obsidian API.",
-	"author": "Obsidian",
-	"authorUrl": "https://obsidian.md",
-	"fundingUrl": "https://obsidian.md/pricing",
-	"isDesktopOnly": false
+	"description": "This is a obsidian plugin which adds a suite of features based on natural language processing techniques, like semantic search, generative question answer, auto-tagging etc.",
+	"author": "solderneer",
+	"authorUrl": "https://solderneer.me",
+	"fundingUrl": "",
+	"isDesktopOnly": "true"
 }

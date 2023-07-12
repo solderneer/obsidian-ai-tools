@@ -6,3 +6,24 @@ available in the app when your plugin is enabled.
 If your plugin does not need CSS, delete this file.
 
 */
+
+.prompt-leading {
+	margin: var(--size-4-1) var(--size-4-3);
+}
+
+.prompt-answer {
+	margin: var(--size-4-3) 0px;
+	background-color: var(--background-primary-alt);
+	padding: var(--size-4-3) var(--size-4-3);
+	border-radius: var(--radius-s);
+	display: flex;
+}
+
+.prompt-subheading {
+	color: var(--text-muted);
+	font-size: 0.7em;
+	font-weight: 600;
+	letter-spacing: 1px;
+	padding: 0px 4px;
+	text-transform: uppercase;
+}
