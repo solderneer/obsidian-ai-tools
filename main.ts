@@ -1,18 +1,14 @@
-import {
-	App,
-	SuggestModal,
-	Notice,
-	Plugin,
-	PluginSettingTab,
-	Setting,
-} from "obsidian";
+import { App, SuggestModal, Plugin, PluginSettingTab, Setting } from "obsidian";
 
 import * as path from "path";
 import Typed from "typed.js";
 
-import { generateEmbeddings } from "./generate-embeddings";
+import { createClient, SupabaseClient } from "@supabase/supabase-js";
+import { Configuration, OpenAIApi } from "openai";
 
-// Remember to rename these classes and interfaces!
+// Local things
+import { generateEmbeddings } from "./generate-embeddings";
+import { semanticSearch } from "./semantic-search";
 
 interface ObsidianMagicSettings {
 	supabaseUrl: string;
@@ -20,31 +16,42 @@ interface ObsidianMagicSettings {
 	openaiKey: string;
 }
 
-interface RefreshResponse {
-	total: number;
-	skipped: number;
-	error: string[];
-}
-
 export default class ObsidianMagicPlugin extends Plugin {
 	settings: ObsidianMagicSettings;
+	supabaseClient: SupabaseClient;
+	openai: OpenAIApi;
 
 	async onload() {
 		await this.loadSettings();
 
+		// Setting up supabase and openai
+		this.supabaseClient = createClient(
+			this.settings.supabaseUrl,
+			this.settings.supabaseKey,
+			{
+				auth: {
+					persistSession: false,
+					autoRefreshToken: false,
+				},
+			}
+		);
+
+		const configuration = new Configuration({
+			apiKey: this.settings.openaiKey,
+		});
+		this.openai = new OpenAIApi(configuration);
+
 		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
 		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText("🔮 Indexing Magic...");
-		fetch(this.settings.apiEndpoint + "/refresh")
-			.then((response) => response.json())
-			.then((data: RefreshResponse) => {
-				statusBarItemEl.setText(
-					`✨ Magic Indexed | ${data.total} indexed`
-				);
+		statusBarItemEl.setText("🔮 Indexing Memex...");
+		generateEmbeddings(this.supabaseClient, this.openai)
+			.then(() => {
+				console.log("hi");
+				statusBarItemEl.setText("✨ Memex Indexed");
 			})
-			.catch((error) => {
-				console.log(error);
-				statusBarItemEl.setText(`😔 Magic Error`);
+			.catch((err) => {
+				console.log(err);
+				statusBarItemEl.setText("😔 Memex Error");
 			});
 
 		// This adds a simple command that can be triggered anywhere
@@ -52,7 +59,12 @@ export default class ObsidianMagicPlugin extends Plugin {
 			id: "magic-search",
 			name: "Magic Search",
 			callback: () => {
-				new MagicSearchModal(this.app).open();
+				new MagicSearchModal(
+					this.app,
+					this.settings.supabaseUrl,
+					this.settings.supabaseKey,
+					this.settings.openaiKey
+				).open();
 			},
 		});
 
@@ -60,27 +72,12 @@ export default class ObsidianMagicPlugin extends Plugin {
 			id: "test-embedding",
 			name: "Test Embedding",
 			callback: async () => {
-				await generateEmbeddings(
-					this.plugin.settings.supabaseUrl,
-					this.plugin.settings.supabaseKey,
-					this.plugin.settings.openaiKey
-				);
+				await generateEmbeddings(this.supabaseClient, this.openai);
 			},
 		});
 
 		// This adds a settings tab so the user can configure various aspects of the plugin
 		this.addSettingTab(new SettingTab(this.app, this));
-
-		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
-		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, "click", (evt: MouseEvent) => {
-			console.log("click", evt);
-		});
-
-		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
-		this.registerInterval(
-			window.setInterval(() => console.log("setInterval"), 5 * 60 * 1000)
-		);
 	}
 
 	onunload() {}
@@ -96,15 +93,41 @@ export default class ObsidianMagicPlugin extends Plugin {
 
 interface SearchResult {
 	id: string;
-	score: string;
+	document_id: string;
+	content: string;
+	document: {
+		id: string;
+		path: string;
+	};
+	similarity: string;
 }
 
 class MagicSearchModal extends SuggestModal<SearchResult> {
 	private keyListener: any;
 	private typedInstance: Typed;
+	private supabaseClient: SupabaseClient;
+	private openai: OpenAIApi;
 
-	constructor(app: App) {
+	constructor(
+		app: App,
+		supabaseUrl: string,
+		supabaseKey: string,
+		openaiKey: string
+	) {
 		super(app);
+
+		// Setting up supabase and openai
+		this.supabaseClient = createClient(supabaseUrl, supabaseKey, {
+			auth: {
+				persistSession: false,
+				autoRefreshToken: false,
+			},
+		});
+
+		const configuration = new Configuration({
+			apiKey: openaiKey,
+		});
+		this.openai = new OpenAIApi(configuration);
 
 		const modalInstruction = `
 		<div class="prompt-instructions">
@@ -159,15 +182,10 @@ class MagicSearchModal extends SuggestModal<SearchResult> {
 						".prompt-input"
 					) as HTMLInputElement;
 
-					const answer = await fetch(
-						"http://127.0.0.1:5000/answer?" +
-							new URLSearchParams({
-								query: inputEl.value,
-							})
-					);
+					const answer = inputEl.getText();
 
 					this.typedInstance = new Typed("#answer", {
-						strings: [await answer.text()],
+						strings: [answer],
 						typeSpeed: 50,
 						showCursor: false,
 					});
@@ -186,31 +204,27 @@ class MagicSearchModal extends SuggestModal<SearchResult> {
 
 	// Returns all available suggestions.
 	async getSuggestions(query: string): Promise<SearchResult[]> {
-		const results = await fetch(
-			"http://127.0.0.1:5000/search?" +
-				new URLSearchParams({
-					query: query,
-					limit: "20",
-				})
+		const results: SearchResult[] = await semanticSearch(
+			this.supabaseClient,
+			this.openai,
+			query
 		);
-
-		const matches: SearchResult[] = await results.json();
-		return matches;
+		return results;
 	}
 
 	// Renders each suggestion item.
 	renderSuggestion(result: SearchResult, el: HTMLElement) {
-		const name = path.parse(result.id).name;
+		const name = path.parse(result.document.path).name;
 		el.createEl("div", { text: name });
 	}
 
 	// Perform action on the selected suggestion.
 	onChooseSuggestion(result: SearchResult, evt: MouseEvent | KeyboardEvent) {
-		new Notice(`Selected ${result.id}`);
 		const leaf = this.app.workspace.getLeaf();
 		const files = this.app.vault.getMarkdownFiles();
 		const selected = files.find(
-			(file) => path.resolve(file.path) === path.resolve(result.id)
+			(file) =>
+				path.resolve(file.path) === path.resolve(result.document.path)
 		);
 		if (selected) leaf.openFile(selected);
 	}
@@ -237,7 +251,7 @@ class SettingTab extends PluginSettingTab {
 			.addText((text) =>
 				text
 					.setPlaceholder("Enter URL")
-					.setValue(this.plugin.settings.apiEndpoint)
+					.setValue(this.plugin.settings.supabaseUrl)
 					.onChange(async (value) => {
 						this.plugin.settings.supabaseUrl = value;
 						await this.plugin.saveSettings();
@@ -250,7 +264,7 @@ class SettingTab extends PluginSettingTab {
 			.addText((text) =>
 				text
 					.setPlaceholder("Enter Key")
-					.setValue(this.plugin.settings.apiEndpoint)
+					.setValue(this.plugin.settings.supabaseKey)
 					.onChange(async (value) => {
 						this.plugin.settings.supabaseKey = value;
 						await this.plugin.saveSettings();
@@ -263,7 +277,7 @@ class SettingTab extends PluginSettingTab {
 			.addText((text) =>
 				text
 					.setPlaceholder("Enter Key")
-					.setValue(this.plugin.settings.apiEndpoint)
+					.setValue(this.plugin.settings.openaiKey)
 					.onChange(async (value) => {
 						this.plugin.settings.openaiKey = value;
 						await this.plugin.saveSettings();

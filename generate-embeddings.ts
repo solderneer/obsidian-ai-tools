@@ -1,61 +1,21 @@
-import yaml from "yaml";
+import * as yaml from "yaml";
 
-import { createClient } from "@supabase/supabase-js";
-import { Configuration, OpenAIApi } from "openai";
+import { SupabaseClient } from "@supabase/supabase-js";
+import { OpenAIApi } from "openai";
 import { createHash } from "crypto";
 
-function parseMarkdown(markdown: string): {
-	content: string;
-	frontmatter: Record<string, any>;
-} {
-	const frontmatterRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/; // Regular expression to match frontmatter
-	const match = markdown.match(frontmatterRegex);
-
-	let content = markdown;
-	let frontmatter: Record<string, any> = {};
-
-	if (match && match[1]) {
-		const frontmatterString = match[1];
-		try {
-			frontmatter = yaml.parse(frontmatterString); // Use yaml.parse() to parse YAML frontmatter
-			content = content.replace(match[0], ""); // Remove frontmatter from content
-		} catch (error) {
-			console.error(`Error parsing frontmatter: ${error}`);
-		}
-	}
-
-	return { content, frontmatter };
-}
-
-function splitIntoParagraphs(text: string): string[] {
-	const paragraphs = text.split(/\r?\n\s*\r?\n/); // Split text by empty lines
-
-	// Trim whitespace from each paragraph
-	const trimmedParagraphs = paragraphs.map((paragraph) => paragraph.trim());
-
-	return trimmedParagraphs;
-}
-
 export async function generateEmbeddings(
-	supabaseUrl: string,
-	supabaseKey: string,
-	openaiKey: string
+	supabaseClient: SupabaseClient,
+	openai: OpenAIApi
 ) {
-	// Setup supabaseClient
-	const supabaseClient = createClient(supabaseUrl, supabaseKey, {
-		auth: {
-			persistSession: false,
-			autoRefreshToken: false,
-		},
-	});
-
 	// Retrieve all the markdown files
 	const files = this.app.vault.getMarkdownFiles(); // Retrieve the list of markdown files in the current vault
+	console.log(files);
 
 	for (const file of files) {
 		try {
 			// Retrieve if the file already exists
-			const { erfor: fetchDocumentError, data: existingDocument } =
+			const { error: fetchDocumentError, data: existingDocument } =
 				await supabaseClient
 					.from("document")
 					.select("id, path, checksum")
@@ -123,20 +83,13 @@ export async function generateEmbeddings(
 				// OpenAI recommends replacing newlines with spaces for best results (specific to embeddings)
 				const input = section.replace(/\n/g, " ");
 				try {
-					const configuration = new Configuration({
-						apiKey: openaiKey,
-					});
-					const openai = new OpenAIApi(configuration);
-
 					const embeddingResponse = await openai.createEmbedding({
 						model: "text-embedding-ada-002",
 						input,
 					});
 
 					if (embeddingResponse.status !== 200) {
-						throw new Error(
-							inspect(embeddingResponse.data, false, 2)
-						);
+						throw new Error("Embedding failed");
 					}
 
 					const [responseData] = embeddingResponse.data.data;
@@ -187,6 +140,41 @@ export async function generateEmbeddings(
 				`Page '${file.path}' or one/multiple of its page sections failed to store properly. Page has been marked with null checksum to indicate that it needs to be re-generated.`
 			);
 			console.error(err);
+			throw err;
 		}
 	}
+}
+
+function parseMarkdown(markdown: string): {
+	content: string;
+	// eslint-disable-next-line
+	frontmatter: Record<string, any>;
+} {
+	const frontmatterRegex = /^---\r?\n([\s\S]*?)\r?\n---\r?\n/; // Regular expression to match frontmatter
+	const match = markdown.match(frontmatterRegex);
+
+	let content = markdown;
+	// eslint-disable-next-line
+	let frontmatter: Record<string, any> = {};
+
+	if (match && match[1]) {
+		const frontmatterString = match[1];
+		try {
+			frontmatter = yaml.parse(frontmatterString); // Use yaml.parse() to parse YAML frontmatter
+			content = content.replace(match[0], ""); // Remove frontmatter from content
+		} catch (error) {
+			console.error(`Error parsing frontmatter: ${error}`);
+		}
+	}
+
+	return { content, frontmatter };
+}
+
+function splitIntoParagraphs(text: string): string[] {
+	const paragraphs = text.split(/\r?\n\s*\r?\n/); // Split text by empty lines
+
+	// Trim whitespace from each paragraph
+	const trimmedParagraphs = paragraphs.map((paragraph) => paragraph.trim());
+
+	return trimmedParagraphs;
 }
