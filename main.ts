@@ -10,10 +10,14 @@ import {
 import * as path from "path";
 import Typed from "typed.js";
 
+import { generateEmbeddings } from "./generate-embeddings";
+
 // Remember to rename these classes and interfaces!
 
 interface ObsidianMagicSettings {
-	apiEndpoint: string;
+	supabaseUrl: string;
+	supabaseKey: string;
+	openaiKey: string;
 }
 
 interface RefreshResponse {
@@ -21,10 +25,6 @@ interface RefreshResponse {
 	skipped: number;
 	error: string[];
 }
-
-const DEFAULT_SETTINGS: ObsidianMagicSettings = {
-	apiEndpoint: "http://localhost:5000",
-};
 
 export default class ObsidianMagicPlugin extends Plugin {
 	settings: ObsidianMagicSettings;
@@ -56,8 +56,20 @@ export default class ObsidianMagicPlugin extends Plugin {
 			},
 		});
 
+		this.addCommand({
+			id: "test-embedding",
+			name: "Test Embedding",
+			callback: async () => {
+				await generateEmbeddings(
+					this.plugin.settings.supabaseUrl,
+					this.plugin.settings.supabaseKey,
+					this.plugin.settings.openaiKey
+				);
+			},
+		});
+
 		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SampleSettingTab(this.app, this));
+		this.addSettingTab(new SettingTab(this.app, this));
 
 		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
 		// Using this function will automatically remove the event listener when this plugin is disabled.
@@ -74,11 +86,7 @@ export default class ObsidianMagicPlugin extends Plugin {
 	onunload() {}
 
 	async loadSettings() {
-		this.settings = Object.assign(
-			{},
-			DEFAULT_SETTINGS,
-			await this.loadData()
-		);
+		this.settings = Object.assign({}, await this.loadData());
 	}
 
 	async saveSettings() {
@@ -208,7 +216,7 @@ class MagicSearchModal extends SuggestModal<SearchResult> {
 	}
 }
 
-class SampleSettingTab extends PluginSettingTab {
+class SettingTab extends PluginSettingTab {
 	plugin: ObsidianMagicPlugin;
 
 	constructor(app: App, plugin: ObsidianMagicPlugin) {
@@ -224,15 +232,40 @@ class SampleSettingTab extends PluginSettingTab {
 		containerEl.createEl("h2", { text: "Settings for my awesome plugin." });
 
 		new Setting(containerEl)
-			.setName("Setting #1")
-			.setDesc("It's a secret")
+			.setName("Supabase URL")
+			.setDesc("The Supabase server URL")
 			.addText((text) =>
 				text
-					.setPlaceholder("Enter your secret")
-					.setValue(this.plugin.settings.mySetting)
+					.setPlaceholder("Enter URL")
+					.setValue(this.plugin.settings.apiEndpoint)
 					.onChange(async (value) => {
-						console.log("Secret: " + value);
-						this.plugin.settings.mySetting = value;
+						this.plugin.settings.supabaseUrl = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Supabase Key")
+			.setDesc("The Supabase API key")
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter Key")
+					.setValue(this.plugin.settings.apiEndpoint)
+					.onChange(async (value) => {
+						this.plugin.settings.supabaseKey = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("OpenAI Key")
+			.setDesc("The OpenAI API key")
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter Key")
+					.setValue(this.plugin.settings.apiEndpoint)
+					.onChange(async (value) => {
+						this.plugin.settings.openaiKey = value;
 						await this.plugin.saveSettings();
 					})
 			);
