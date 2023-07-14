@@ -18,7 +18,7 @@ import { generateEmbeddings } from "./generate-embeddings";
 import { generativeSearch, semanticSearch } from "./semantic-search";
 import { truncateString, removeMarkdown } from "./utils";
 
-interface ObsidianMagicSettings {
+interface ObsidianAISettings {
 	supabaseUrl: string;
 	supabaseKey: string;
 	openaiKey: string;
@@ -31,7 +31,7 @@ interface ObsidianMagicSettings {
 	publicDirsList: string[];
 }
 
-const DEFAULT_SETTINGS: ObsidianMagicSettings = {
+const DEFAULT_SETTINGS: ObsidianAISettings = {
 	supabaseUrl: "",
 	supabaseKey: "",
 	openaiKey: "",
@@ -44,91 +44,150 @@ const DEFAULT_SETTINGS: ObsidianMagicSettings = {
 	publicDirsList: [],
 };
 
-export default class ObsidianMagicPlugin extends Plugin {
-	settings: ObsidianMagicSettings;
-	supabaseClient: SupabaseClient;
-	openai: OpenAIApi;
+export default class ObsidianAIPlugin extends Plugin {
+	settings: ObsidianAISettings;
+	supabaseClient: SupabaseClient | null;
+	openai: OpenAIApi | null;
+	statusBarItemEl: HTMLElement;
+
+	setupSupabase() {
+		this.supabaseClient = null;
+		if (
+			!(
+				this.settings.supabaseUrl === "" ||
+				this.settings.supabaseKey === ""
+			)
+		) {
+			console.log("Creating supabase client!");
+			this.supabaseClient = createClient(
+				this.settings.supabaseUrl,
+				this.settings.supabaseKey,
+				{
+					auth: {
+						persistSession: false,
+						autoRefreshToken: false,
+					},
+				}
+			);
+		}
+
+		console.log(this.supabaseClient);
+		console.log(this.openai);
+
+		if (!(this.supabaseClient && this.openai)) {
+			this.statusBarItemEl.setText("❓[AI] Missing API variables");
+		} else {
+			this.statusBarItemEl.setText("✨ [AI] Ready");
+		}
+	}
+
+	setupOpenai() {
+		this.openai = null;
+		if (!(this.settings.openaiKey === "")) {
+			console.log("Creating openai client!");
+			const configuration = new Configuration({
+				apiKey: this.settings.openaiKey,
+			});
+			this.openai = new OpenAIApi(configuration);
+		}
+
+		console.log(this.supabaseClient);
+		console.log(this.openai);
+
+		if (!(this.supabaseClient && this.openai)) {
+			this.statusBarItemEl.setText("❓[AI] Missing API variables");
+		} else {
+			this.statusBarItemEl.setText("✨ [AI] Ready");
+		}
+	}
 
 	async onload() {
 		await this.loadSettings();
 
-		// Setting up supabase and openai
-		this.supabaseClient = createClient(
-			this.settings.supabaseUrl,
-			this.settings.supabaseKey,
-			{
-				auth: {
-					persistSession: false,
-					autoRefreshToken: false,
-				},
-			}
-		);
-
-		const configuration = new Configuration({
-			apiKey: this.settings.openaiKey,
-		});
-		this.openai = new OpenAIApi(configuration);
-
 		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText("✨ [AI] Loaded");
+		this.statusBarItemEl = this.addStatusBarItem();
+
+		// This adds a settings tab so the user can configure various aspects of the plugin
+		this.addSettingTab(new SettingTab(this.app, this));
+
+		this.setupSupabase();
+		this.setupOpenai();
 
 		// Index any new files on startup
-		if (this.settings.indexOnOpen) {
+		if (
+			this.settings.indexOnOpen &&
+			this.supabaseClient !== null &&
+			this.openai !== null
+		) {
 			this.app.workspace.onLayoutReady(() => {
-				statusBarItemEl.setText("🔮 [AI] Indexing...");
-				generateEmbeddings(
-					this.supabaseClient,
-					this.openai,
-					this.settings.excludedDirsList,
-					this.settings.publicDirsList
-				)
-					.then(() => {
-						statusBarItemEl.setText("✨ [AI] Loaded");
-					})
-					.catch((err) => {
-						console.log(err);
-						statusBarItemEl.setText("😔 [AI] Error");
-					});
+				if (this.supabaseClient !== null && this.openai !== null) {
+					this.statusBarItemEl.setText("🔮 [AI] Indexing...");
+					generateEmbeddings(
+						this.supabaseClient,
+						this.openai,
+						this.settings.excludedDirsList,
+						this.settings.publicDirsList
+					)
+						.then(() => {
+							this.statusBarItemEl.setText("✨ [AI] Loaded");
+						})
+						.catch((err) => {
+							console.log(err);
+							this.statusBarItemEl.setText("😔 [AI] Error");
+						});
+				}
 			});
 		}
 
 		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
-			id: "magic-search",
-			name: "Magic Search",
-			callback: () => {
-				new MagicSearchModal(
-					this.app,
-					this.supabaseClient,
-					this.openai
-				).open();
+			id: "ai-search",
+			name: "AI Search",
+			checkCallback: (checking: boolean) => {
+				if (this.supabaseClient !== null && this.openai !== null) {
+					if (!checking) {
+						new AISearchModal(
+							this.app,
+							this.supabaseClient,
+							this.openai
+						).open();
+					}
+
+					return true;
+				}
+
+				return false;
 			},
 		});
 
 		this.addCommand({
 			id: "refresh-embedding",
 			name: "Refresh Index",
-			callback: () => {
-				statusBarItemEl.setText("🔮 [AI] Indexing...");
-				generateEmbeddings(
-					this.supabaseClient,
-					this.openai,
-					this.settings.excludedDirsList,
-					this.settings.publicDirsList
-				)
-					.then(() => {
-						statusBarItemEl.setText("✨ [AI] Loaded");
-					})
-					.catch((err) => {
-						console.log(err);
-						statusBarItemEl.setText("😔 [AI] Error");
-					});
+			checkCallback: (checking: boolean) => {
+				if (this.supabaseClient !== null && this.openai !== null) {
+					if (!checking) {
+						this.statusBarItemEl.setText("🔮 [AI] Indexing...");
+						generateEmbeddings(
+							this.supabaseClient,
+							this.openai,
+							this.settings.excludedDirsList,
+							this.settings.publicDirsList
+						)
+							.then(() => {
+								this.statusBarItemEl.setText("✨ [AI] Loaded");
+							})
+							.catch((err) => {
+								console.log(err);
+								this.statusBarItemEl.setText("😔 [AI] Error");
+							});
+					}
+
+					return true;
+				}
+
+				return false;
 			},
 		});
-
-		// This adds a settings tab so the user can configure various aspects of the plugin
-		this.addSettingTab(new SettingTab(this.app, this));
 	}
 
 	onunload() {}
@@ -157,7 +216,7 @@ interface SearchResult {
 	similarity: string;
 }
 
-class MagicSearchModal extends SuggestModal<SearchResult> {
+class AISearchModal extends SuggestModal<SearchResult> {
 	private keyListener: any;
 	private supabaseClient: SupabaseClient;
 	private renderer: MarkdownRenderer;
@@ -202,7 +261,7 @@ class MagicSearchModal extends SuggestModal<SearchResult> {
 		this.resultContainerEl.before(leadingPromptHTML);
 
 		// Setting the placeholder
-		this.setPlaceholder("Enter query to ✨magic✨ search...");
+		this.setPlaceholder("Enter query to ✨ AI ✨ search...");
 	}
 
 	onOpen(): void {
@@ -279,9 +338,9 @@ class MagicSearchModal extends SuggestModal<SearchResult> {
 }
 
 class SettingTab extends PluginSettingTab {
-	plugin: ObsidianMagicPlugin;
+	plugin: ObsidianAIPlugin;
 
-	constructor(app: App, plugin: ObsidianMagicPlugin) {
+	constructor(app: App, plugin: ObsidianAIPlugin) {
 		super(app, plugin);
 		this.plugin = plugin;
 	}
@@ -351,6 +410,7 @@ class SettingTab extends PluginSettingTab {
 				.onChange(async (value) => {
 					this.plugin.settings.supabaseUrl = value;
 					await this.plugin.saveSettings();
+					this.plugin.setupSupabase();
 				})
 		);
 
@@ -363,6 +423,7 @@ class SettingTab extends PluginSettingTab {
 					.onChange(async (value) => {
 						this.plugin.settings.supabaseKey = value;
 						await this.plugin.saveSettings();
+						this.plugin.setupSupabase();
 					})
 			);
 
@@ -373,6 +434,7 @@ class SettingTab extends PluginSettingTab {
 				.onChange(async (value) => {
 					this.plugin.settings.openaiKey = value;
 					await this.plugin.saveSettings();
+					this.plugin.setupOpenai();
 				})
 		);
 	}
