@@ -1,4 +1,5 @@
 import * as yaml from "yaml";
+import * as path from "path";
 
 import { SupabaseClient } from "@supabase/supabase-js";
 import { OpenAIApi } from "openai-edge";
@@ -6,10 +7,15 @@ import { createHash } from "crypto";
 
 export async function generateEmbeddings(
 	supabaseClient: SupabaseClient,
-	openai: OpenAIApi
+	openai: OpenAIApi,
+	excludeDirs: string[],
+	publicDirs: string[]
 ) {
-	// Retrieve all the markdown files
-	const files = this.app.vault.getMarkdownFiles(); // Retrieve the list of markdown files in the current vault
+	// Retrieve non-excluded markdown files
+	const files = this.app.vault
+		.getMarkdownFiles()
+		.filter((file: any) => !isFileInDirectories(file.path, excludeDirs));
+
 	console.log(files);
 
 	for (const file of files) {
@@ -18,7 +24,7 @@ export async function generateEmbeddings(
 			const { error: fetchDocumentError, data: existingDocument } =
 				await supabaseClient
 					.from("document")
-					.select("id, path, checksum")
+					.select("id, path, checksum, public")
 					.filter("path", "eq", file.path)
 					.limit(1)
 					.maybeSingle();
@@ -32,7 +38,29 @@ export async function generateEmbeddings(
 			const checksum = createHash("sha256")
 				.update(markdown)
 				.digest("base64");
-			if (existingDocument?.checksum === checksum) continue;
+
+			// Get whether this is a public file
+			const isPublic = isFileInDirectories(file.path, publicDirs);
+
+			if (existingDocument?.checksum === checksum) {
+				// Check if the document access is correct
+				if (existingDocument.public === isPublic) continue;
+				else {
+					// Update document access
+					console.log(
+						`Updating file access: ${file.path}, setting public to ${isPublic}`
+					);
+					const { error: updateDocumentError } = await supabaseClient
+						.from("document")
+						.update({ public: isPublic })
+						.filter("id", "eq", existingDocument.id);
+					if (updateDocumentError) {
+						throw updateDocumentError;
+					}
+
+					continue;
+				}
+			}
 
 			// If existing page exists but has changed, then delete existing sections and reindex file
 			if (existingDocument) {
@@ -64,7 +92,7 @@ export async function generateEmbeddings(
 							checksum: null,
 							path: file.path,
 							meta: JSON.stringify(frontmatter),
-							public: false,
+							public: isPublic,
 						},
 						{ onConflict: "path" }
 					)
@@ -142,6 +170,21 @@ export async function generateEmbeddings(
 			throw err;
 		}
 	}
+}
+
+function isFileInDirectories(filePath: string, directories: string[]): boolean {
+	const normalizedFilePath = path.normalize(filePath);
+	const normalizedDirectories = directories.map((directory) =>
+		path.normalize(directory)
+	);
+
+	for (const directory of normalizedDirectories) {
+		if (normalizedFilePath.startsWith(directory)) {
+			return true;
+		}
+	}
+
+	return false;
 }
 
 function parseMarkdown(markdown: string): {

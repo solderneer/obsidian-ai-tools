@@ -27,3 +27,17 @@ If your plugin does not need CSS, delete this file.
 	padding: 0px 4px;
 	text-transform: uppercase;
 }
+
+.prompt-suggestion-header {
+	font-weight: var(--font-semibold);
+	font-size: var(--font-ui-larger);
+}
+
+.prompt-suggestion-content {
+	font-size: var(--font-ui-small);
+	margin-top: var(--size-4-1);
+}
+
+.prompt-suggestion-item {
+	padding: var(--size-4-2) var(--size-4-3);
+}

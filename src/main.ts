@@ -1,7 +1,7 @@
 import { App, SuggestModal, Plugin, PluginSettingTab, Setting } from "obsidian";
 
-import * as path from "path";
 import Typed from "typed.js";
+import * as path from "path";
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { Configuration, OpenAIApi } from "openai-edge";
@@ -14,7 +14,27 @@ interface ObsidianMagicSettings {
 	supabaseUrl: string;
 	supabaseKey: string;
 	openaiKey: string;
+	indexOnOpen: boolean;
+
+	excludedDirs: string;
+	excludedDirsList: string[];
+
+	publicDirs: string;
+	publicDirsList: string[];
 }
+
+const DEFAULT_SETTINGS: ObsidianMagicSettings = {
+	supabaseUrl: "",
+	supabaseKey: "",
+	openaiKey: "",
+	indexOnOpen: false,
+
+	excludedDirs: "",
+	excludedDirsList: [],
+
+	publicDirs: "",
+	publicDirsList: [],
+};
 
 export default class ObsidianMagicPlugin extends Plugin {
 	settings: ObsidianMagicSettings;
@@ -43,21 +63,27 @@ export default class ObsidianMagicPlugin extends Plugin {
 
 		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
 		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText("✨ Memex Indexed");
+		statusBarItemEl.setText("✨ [AI] Loaded");
 
-		// Index any new files
-		this.app.workspace.onLayoutReady(() => {
-			statusBarItemEl.setText("🔮 Indexing Memex...");
-			generateEmbeddings(this.supabaseClient, this.openai)
-				.then(() => {
-					console.log("hi");
-					statusBarItemEl.setText("✨ Memex Indexed");
-				})
-				.catch((err) => {
-					console.log(err);
-					statusBarItemEl.setText("😔 Memex Error");
-				});
-		});
+		// Index any new files on startup
+		if (this.settings.indexOnOpen) {
+			this.app.workspace.onLayoutReady(() => {
+				statusBarItemEl.setText("🔮 [AI] Indexing...");
+				generateEmbeddings(
+					this.supabaseClient,
+					this.openai,
+					this.settings.excludedDirsList,
+					this.settings.publicDirsList
+				)
+					.then(() => {
+						statusBarItemEl.setText("✨ [AI] Loaded");
+					})
+					.catch((err) => {
+						console.log(err);
+						statusBarItemEl.setText("😔 [AI] Error");
+					});
+			});
+		}
 
 		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
@@ -66,18 +92,30 @@ export default class ObsidianMagicPlugin extends Plugin {
 			callback: () => {
 				new MagicSearchModal(
 					this.app,
-					this.settings.supabaseUrl,
-					this.settings.supabaseKey,
-					this.settings.openaiKey
+					this.supabaseClient,
+					this.openai
 				).open();
 			},
 		});
 
 		this.addCommand({
-			id: "test-embedding",
-			name: "Test Embedding",
-			callback: async () => {
-				await generateEmbeddings(this.supabaseClient, this.openai);
+			id: "refresh-embedding",
+			name: "Refresh Index",
+			callback: () => {
+				statusBarItemEl.setText("🔮 [AI] Indexing...");
+				generateEmbeddings(
+					this.supabaseClient,
+					this.openai,
+					this.settings.excludedDirsList,
+					this.settings.publicDirsList
+				)
+					.then(() => {
+						statusBarItemEl.setText("✨ [AI] Loaded");
+					})
+					.catch((err) => {
+						console.log(err);
+						statusBarItemEl.setText("😔 [AI] Error");
+					});
 			},
 		});
 
@@ -88,7 +126,11 @@ export default class ObsidianMagicPlugin extends Plugin {
 	onunload() {}
 
 	async loadSettings() {
-		this.settings = Object.assign({}, await this.loadData());
+		this.settings = Object.assign(
+			{},
+			DEFAULT_SETTINGS,
+			await this.loadData()
+		);
 	}
 
 	async saveSettings() {
@@ -109,30 +151,15 @@ interface SearchResult {
 
 class MagicSearchModal extends SuggestModal<SearchResult> {
 	private keyListener: any;
-	private typedInstance: Typed;
 	private supabaseClient: SupabaseClient;
+	private typedInstance: Typed;
 	private openai: OpenAIApi;
 
-	constructor(
-		app: App,
-		supabaseUrl: string,
-		supabaseKey: string,
-		openaiKey: string
-	) {
+	constructor(app: App, supabaseClient: SupabaseClient, openai: OpenAIApi) {
 		super(app);
 
-		// Setting up supabase and openai
-		this.supabaseClient = createClient(supabaseUrl, supabaseKey, {
-			auth: {
-				persistSession: false,
-				autoRefreshToken: false,
-			},
-		});
-
-		const configuration = new Configuration({
-			apiKey: openaiKey,
-		});
-		this.openai = new OpenAIApi(configuration);
+		this.supabaseClient = supabaseClient;
+		this.openai = openai;
 
 		const modalInstruction = `
 		<div class="prompt-instructions">
@@ -170,37 +197,35 @@ class MagicSearchModal extends SuggestModal<SearchResult> {
 	}
 
 	onOpen(): void {
-		this.keyListener = document.addEventListener(
-			"keydown",
-			async (event) => {
-				if (event.shiftKey && event.key === "Enter") {
-					// Kill old typed instance if any
-					if (this.typedInstance) {
-						this.typedInstance.destroy();
-					}
-
-					const answerHTML = document.querySelector("#answer")!;
-					answerHTML.innerHTML = "Thinking...";
-
-					// Get prompt input
-					const inputEl = document.querySelector(
-						".prompt-input"
-					) as HTMLInputElement;
-
-					const answer = await generativeSearch(
-						this.supabaseClient,
-						this.openai,
-						inputEl.value
-					);
-
-					this.typedInstance = new Typed("#answer", {
-						strings: [answer ?? "No answer"],
-						typeSpeed: 50,
-						showCursor: false,
-					});
+		this.keyListener = async (event: KeyboardEvent) => {
+			if (event.shiftKey && event.key === "Enter") {
+				if (this.typedInstance) {
+					this.typedInstance.destroy();
 				}
+
+				const answerHTML = document.querySelector("#answer")!;
+				answerHTML.innerHTML = "Thinking...";
+
+				// Get prompt input
+				const inputEl = document.querySelector(
+					".prompt-input"
+				) as HTMLInputElement;
+
+				const answer = await generativeSearch(
+					this.supabaseClient,
+					this.openai,
+					inputEl.value
+				);
+
+				this.typedInstance = new Typed("#answer", {
+					strings: [answer ?? "No answer"],
+					typeSpeed: 50,
+					showCursor: false,
+				});
 			}
-		);
+		};
+
+		document.addEventListener("keydown", this.keyListener);
 	}
 
 	onClose(): void {
@@ -221,10 +246,23 @@ class MagicSearchModal extends SuggestModal<SearchResult> {
 		return results;
 	}
 
+	truncateString(str: string, maxLength: number): string {
+		if (str.length <= maxLength) {
+			return str;
+		}
+
+		return str.slice(0, maxLength) + "...";
+	}
+
 	// Renders each suggestion item.
 	renderSuggestion(result: SearchResult, el: HTMLElement) {
 		const name = path.parse(result.document.path).name;
-		el.createEl("div", { text: name });
+		el.classList.add("prompt-suggestion-item");
+		el.createEl("div", { cls: "prompt-suggestion-header", text: name });
+		el.createEl("div", {
+			cls: "prompt-suggestion-content",
+			text: this.truncateString(result.content, 200),
+		});
 	}
 
 	// Perform action on the selected suggestion.
@@ -252,7 +290,58 @@ class SettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		containerEl.createEl("h2", { text: "Network Settings" });
+		new Setting(containerEl)
+			.setName("Excluded Directories")
+			.setDesc(
+				"Enter a list of comma-seperated paths to exclude from indexing"
+			)
+			.addTextArea((text) =>
+				text
+					.setPlaceholder("Enter paths")
+					.setValue(this.plugin.settings.excludedDirs)
+					.onChange(async (value) => {
+						this.plugin.settings.excludedDirs = value;
+						this.plugin.settings.excludedDirsList = value
+							.split(",")
+							.map((path) => path.trim());
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Public Directories")
+			.setDesc(
+				"Enter a list of comma-seperated paths to expose to the public"
+			)
+			.addTextArea((text) =>
+				text
+					.setPlaceholder("Enter paths")
+					.setValue(this.plugin.settings.publicDirs)
+					.onChange(async (value) => {
+						this.plugin.settings.publicDirs = value;
+						this.plugin.settings.publicDirsList = value
+							.split(",")
+							.map((path) => path.trim());
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Index on start")
+			.setDesc("Index documents automatically on start")
+			.addToggle((component) =>
+				component
+					.setValue(this.plugin.settings.indexOnOpen)
+					.onChange(async (value) => {
+						this.plugin.settings.indexOnOpen = value;
+						await this.plugin.saveSettings();
+					})
+			);
+
+		containerEl.createEl("div", {
+			cls: "setting-item setting-item-heading",
+			text: "Secrets",
+		});
 
 		new Setting(containerEl).setName("Supabase URL").addText((text) =>
 			text
@@ -264,15 +353,17 @@ class SettingTab extends PluginSettingTab {
 				})
 		);
 
-		new Setting(containerEl).setName("Supabase API Key").addText((text) =>
-			text
-				.setPlaceholder("Enter Key")
-				.setValue(this.plugin.settings.supabaseKey)
-				.onChange(async (value) => {
-					this.plugin.settings.supabaseKey = value;
-					await this.plugin.saveSettings();
-				})
-		);
+		new Setting(containerEl)
+			.setName("Supabase Service Role Key")
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter Key")
+					.setValue(this.plugin.settings.supabaseKey)
+					.onChange(async (value) => {
+						this.plugin.settings.supabaseKey = value;
+						await this.plugin.saveSettings();
+					})
+			);
 
 		new Setting(containerEl).setName("OpenAI API Key").addText((text) =>
 			text
