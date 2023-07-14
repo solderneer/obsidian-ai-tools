@@ -1,4 +1,11 @@
-import { App, SuggestModal, Plugin, PluginSettingTab, Setting } from "obsidian";
+import {
+	App,
+	SuggestModal,
+	Plugin,
+	PluginSettingTab,
+	Setting,
+	MarkdownRenderer,
+} from "obsidian";
 
 import Typed from "typed.js";
 import * as path from "path";
@@ -9,6 +16,7 @@ import { Configuration, OpenAIApi } from "openai-edge";
 // Local things
 import { generateEmbeddings } from "./generate-embeddings";
 import { generativeSearch, semanticSearch } from "./semantic-search";
+import { truncateString, removeMarkdown } from "./utils";
 
 interface ObsidianMagicSettings {
 	supabaseUrl: string;
@@ -152,6 +160,7 @@ interface SearchResult {
 class MagicSearchModal extends SuggestModal<SearchResult> {
 	private keyListener: any;
 	private supabaseClient: SupabaseClient;
+	private renderer: MarkdownRenderer;
 	private typedInstance: Typed;
 	private openai: OpenAIApi;
 
@@ -246,14 +255,6 @@ class MagicSearchModal extends SuggestModal<SearchResult> {
 		return results;
 	}
 
-	truncateString(str: string, maxLength: number): string {
-		if (str.length <= maxLength) {
-			return str;
-		}
-
-		return str.slice(0, maxLength) + "...";
-	}
-
 	// Renders each suggestion item.
 	renderSuggestion(result: SearchResult, el: HTMLElement) {
 		const name = path.parse(result.document.path).name;
@@ -261,7 +262,7 @@ class MagicSearchModal extends SuggestModal<SearchResult> {
 		el.createEl("div", { cls: "prompt-suggestion-header", text: name });
 		el.createEl("div", {
 			cls: "prompt-suggestion-content",
-			text: this.truncateString(result.content, 200),
+			text: truncateString(removeMarkdown(result.content), 200),
 		});
 	}
 

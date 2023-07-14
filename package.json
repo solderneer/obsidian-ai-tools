@@ -1,7 +1,7 @@
 {
-	"name": "obsidian-memex",
+	"name": "obsidian-ai",
 	"version": "1.0.0",
-	"description": "This is a obsidian plugin which adds a suite of features based on natural language processing techniques, like semantic search, generative question answer, auto-tagging etc.",
+	"description": "This is a obsidian plugin which adds a suite of features based on ML/AI, like semantic search, generative question answer, auto-tagging etc.",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
