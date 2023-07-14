@@ -4,11 +4,11 @@ import * as path from "path";
 import Typed from "typed.js";
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { Configuration, OpenAIApi } from "openai";
+import { Configuration, OpenAIApi } from "openai-edge";
 
 // Local things
 import { generateEmbeddings } from "./generate-embeddings";
-import { semanticSearch } from "./semantic-search";
+import { generativeSearch, semanticSearch } from "./semantic-search";
 
 interface ObsidianMagicSettings {
 	supabaseUrl: string;
@@ -43,16 +43,21 @@ export default class ObsidianMagicPlugin extends Plugin {
 
 		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
 		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText("🔮 Indexing Memex...");
-		generateEmbeddings(this.supabaseClient, this.openai)
-			.then(() => {
-				console.log("hi");
-				statusBarItemEl.setText("✨ Memex Indexed");
-			})
-			.catch((err) => {
-				console.log(err);
-				statusBarItemEl.setText("😔 Memex Error");
-			});
+		statusBarItemEl.setText("✨ Memex Indexed");
+
+		// Index any new files
+		this.app.workspace.onLayoutReady(() => {
+			statusBarItemEl.setText("🔮 Indexing Memex...");
+			generateEmbeddings(this.supabaseClient, this.openai)
+				.then(() => {
+					console.log("hi");
+					statusBarItemEl.setText("✨ Memex Indexed");
+				})
+				.catch((err) => {
+					console.log(err);
+					statusBarItemEl.setText("😔 Memex Error");
+				});
+		});
 
 		// This adds a simple command that can be triggered anywhere
 		this.addCommand({
@@ -182,10 +187,14 @@ class MagicSearchModal extends SuggestModal<SearchResult> {
 						".prompt-input"
 					) as HTMLInputElement;
 
-					const answer = inputEl.getText();
+					const answer = await generativeSearch(
+						this.supabaseClient,
+						this.openai,
+						inputEl.value
+					);
 
 					this.typedInstance = new Typed("#answer", {
-						strings: [answer],
+						strings: [answer ?? "No answer"],
 						typeSpeed: 50,
 						showCursor: false,
 					});
@@ -243,45 +252,36 @@ class SettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		containerEl.createEl("h2", { text: "Settings for my awesome plugin." });
+		containerEl.createEl("h2", { text: "Network Settings" });
 
-		new Setting(containerEl)
-			.setName("Supabase URL")
-			.setDesc("The Supabase server URL")
-			.addText((text) =>
-				text
-					.setPlaceholder("Enter URL")
-					.setValue(this.plugin.settings.supabaseUrl)
-					.onChange(async (value) => {
-						this.plugin.settings.supabaseUrl = value;
-						await this.plugin.saveSettings();
-					})
-			);
+		new Setting(containerEl).setName("Supabase URL").addText((text) =>
+			text
+				.setPlaceholder("Enter URL")
+				.setValue(this.plugin.settings.supabaseUrl)
+				.onChange(async (value) => {
+					this.plugin.settings.supabaseUrl = value;
+					await this.plugin.saveSettings();
+				})
+		);
 
-		new Setting(containerEl)
-			.setName("Supabase Key")
-			.setDesc("The Supabase API key")
-			.addText((text) =>
-				text
-					.setPlaceholder("Enter Key")
-					.setValue(this.plugin.settings.supabaseKey)
-					.onChange(async (value) => {
-						this.plugin.settings.supabaseKey = value;
-						await this.plugin.saveSettings();
-					})
-			);
+		new Setting(containerEl).setName("Supabase API Key").addText((text) =>
+			text
+				.setPlaceholder("Enter Key")
+				.setValue(this.plugin.settings.supabaseKey)
+				.onChange(async (value) => {
+					this.plugin.settings.supabaseKey = value;
+					await this.plugin.saveSettings();
+				})
+		);
 
-		new Setting(containerEl)
-			.setName("OpenAI Key")
-			.setDesc("The OpenAI API key")
-			.addText((text) =>
-				text
-					.setPlaceholder("Enter Key")
-					.setValue(this.plugin.settings.openaiKey)
-					.onChange(async (value) => {
-						this.plugin.settings.openaiKey = value;
-						await this.plugin.saveSettings();
-					})
-			);
+		new Setting(containerEl).setName("OpenAI API Key").addText((text) =>
+			text
+				.setPlaceholder("Enter Key")
+				.setValue(this.plugin.settings.openaiKey)
+				.onChange(async (value) => {
+					this.plugin.settings.openaiKey = value;
+					await this.plugin.saveSettings();
+				})
+		);
 	}
 }

@@ -1,7 +1,7 @@
 import * as yaml from "yaml";
 
 import { SupabaseClient } from "@supabase/supabase-js";
-import { OpenAIApi } from "openai";
+import { OpenAIApi } from "openai-edge";
 import { createHash } from "crypto";
 
 export async function generateEmbeddings(
@@ -92,7 +92,7 @@ export async function generateEmbeddings(
 						throw new Error("Embedding failed");
 					}
 
-					const [responseData] = embeddingResponse.data.data;
+					const data = await embeddingResponse.json();
 
 					const { error: insertDocumentSectionError } =
 						await supabaseClient
@@ -100,9 +100,8 @@ export async function generateEmbeddings(
 							.insert({
 								document_id: document.id,
 								content: section,
-								token_count:
-									embeddingResponse.data.usage.total_tokens,
-								embedding: responseData.embedding,
+								token_count: data.usage.total_tokens,
+								embedding: data.data[0].embedding,
 							})
 							.select()
 							.limit(1)
