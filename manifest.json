@@ -3,7 +3,7 @@
 	"name": "Obsidian AI",
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
-	"description": "This is a obsidian plugin which adds a suite of features based on ML/AI, like semantic search, generative question answer, auto-tagging etc.",
+	"description": "Adding powerful semantic search and generative QnA to Obsidian, using Supabase + OpenAI",
 	"author": "solderneer",
 	"authorUrl": "https://solderneer.me",
 	"fundingUrl": "",
