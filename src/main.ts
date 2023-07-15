@@ -1,14 +1,9 @@
-import {
-	App,
-	SuggestModal,
-	Plugin,
-	PluginSettingTab,
-	Setting,
-	MarkdownRenderer,
-} from "obsidian";
+import { App, SuggestModal, Plugin, PluginSettingTab, Setting } from "obsidian";
 
 import Typed from "typed.js";
 import * as path from "path";
+
+import { oneLine } from "common-tags";
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
 import { Configuration, OpenAIApi } from "openai-edge";
@@ -29,6 +24,8 @@ interface ObsidianAISettings {
 
 	publicDirs: string;
 	publicDirsList: string[];
+
+	prompt: string;
 }
 
 const DEFAULT_SETTINGS: ObsidianAISettings = {
@@ -42,6 +39,12 @@ const DEFAULT_SETTINGS: ObsidianAISettings = {
 
 	publicDirs: "",
 	publicDirsList: [],
+
+	prompt: oneLine`Your name is Obsidian, you are a 22-year-old university student who studies
+		Electronics and Electrical Engineering at University College London. Given
+		the following sections from your notes, answer the question with the provided information. If
+		you are unsure, and the notes don't include relevant information, you may also say
+		"Sorry, I don't know the answer to this question :("`,
 };
 
 export default class ObsidianAIPlugin extends Plugin {
@@ -149,7 +152,8 @@ export default class ObsidianAIPlugin extends Plugin {
 						new AISearchModal(
 							this.app,
 							this.supabaseClient,
-							this.openai
+							this.openai,
+							this.settings.prompt
 						).open();
 					}
 
@@ -219,15 +223,21 @@ interface SearchResult {
 class AISearchModal extends SuggestModal<SearchResult> {
 	private keyListener: any;
 	private supabaseClient: SupabaseClient;
-	private renderer: MarkdownRenderer;
+	private prompt: string;
 	private typedInstance: Typed;
 	private openai: OpenAIApi;
 
-	constructor(app: App, supabaseClient: SupabaseClient, openai: OpenAIApi) {
+	constructor(
+		app: App,
+		supabaseClient: SupabaseClient,
+		openai: OpenAIApi,
+		prompt: string
+	) {
 		super(app);
 
 		this.supabaseClient = supabaseClient;
 		this.openai = openai;
+		this.prompt = prompt;
 
 		const modalInstruction = `
 		<div class="prompt-instructions">
@@ -282,7 +292,8 @@ class AISearchModal extends SuggestModal<SearchResult> {
 				const answer = await generativeSearch(
 					this.supabaseClient,
 					this.openai,
-					inputEl.value
+					inputEl.value,
+					this.prompt
 				);
 
 				this.typedInstance = new Typed("#answer", {
@@ -382,6 +393,21 @@ class SettingTab extends PluginSettingTab {
 						this.plugin.settings.publicDirsList = value
 							.split(",")
 							.map((path) => path.trim());
+						await this.plugin.saveSettings();
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Prompt")
+			.setDesc(
+				"Enter a prompt, you can customise the name and instructions"
+			)
+			.addTextArea((text) =>
+				text
+					.setPlaceholder("Enter prompt")
+					.setValue(this.plugin.settings.prompt)
+					.onChange(async (value) => {
+						this.plugin.settings.prompt = oneLine`${value}`;
 						await this.plugin.saveSettings();
 					})
 			);

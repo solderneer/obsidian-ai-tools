@@ -6,12 +6,13 @@ import {
 	ChatCompletionRequestMessage,
 } from "openai-edge";
 import { encode } from "gpt-tokenizer";
-import { codeBlock, oneLine } from "common-tags";
+import { codeBlock } from "common-tags";
 
 export async function generativeSearch(
 	supabaseClient: SupabaseClient,
 	openai: OpenAIApi,
-	query: string
+	query: string,
+	promptIntro: string
 ) {
 	// Moderate the content to comply with OpenAI T&C
 	let sanitizedQuery = "";
@@ -51,13 +52,7 @@ export async function generativeSearch(
 	}
 
 	const prompt = codeBlock`
-      ${oneLine`
-        Your name is Shan, you are a 22-year-old university student who studies
-		Electronics and Electrical Engineering at University College London. Given
-		the following sections from your notes and personal blog, answer the questio. If
-		you are unsure, and the notes don't include relevant information, you may also say
-		"Sorry, I don't know the answer to this question :("
-      `}
+      ${promptIntro}
 
       Context sections:
       ${contextText}
