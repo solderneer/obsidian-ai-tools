@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-ai",
-	"version": "1.1.0",
+	"version": "1.1.1",
 	"description": "Adding powerful semantic search, generative answers, and other AI tools to Obsidian, using Supabase + OpenAI",
 	"main": "main.js",
 	"scripts": {
