@@ -1,9 +1,9 @@
 {
-	"id": "obsidian-ai",
+	"id": "ai-tools",
 	"name": "Obsidian AI",
 	"version": "1.1.0",
 	"minAppVersion": "0.15.0",
-	"description": "Adding powerful semantic search and generative QnA to Obsidian, using Supabase + OpenAI",
+	"description": "Adding powerful semantic search, generative answers, and other AI tools to Obsidian, using Supabase + OpenAI",
 	"author": "solderneer",
 	"authorUrl": "https://solderneer.me",
 	"fundingUrl": "",
