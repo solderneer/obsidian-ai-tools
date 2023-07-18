@@ -12,18 +12,18 @@ export async function generativeSearch(
 	openai: OpenAIApi,
 	query: string,
 	promptIntro: string,
-	match_threshold = 0.78,
-	match_count = 10,
-	min_content_length = 50
+	matchThreshold = 0.78,
+	matchCount = 10,
+	minContentLength = 50
 ) {
 
 	const matches = await semanticSearch(
 		supabaseClient,
 		openai,
 		query,
-		match_threshold,
-		match_count,
-		min_content_length
+		matchThreshold,
+		matchCount,
+		minContentLength
 	);
 
 	// Only send 1500 tokens maximum
@@ -73,9 +73,9 @@ export async function semanticSearch(
 	supabaseClient: SupabaseClient,
 	openai: OpenAIApi,
 	query: string,
-	match_threshold = 0.78,
-	match_count = 10,
-	min_content_length = 50
+	matchThreshold = 0.78,
+	matchCount = 10,
+	minContentLength = 50
 ) {
 
 	// Create embedding from query
@@ -95,9 +95,9 @@ export async function semanticSearch(
 	const { error: matchError, data: documentSections } =
 		await supabaseClient.rpc("match_document_sections", {
 			embedding,
-			match_threshold,
-			match_count,
-			min_content_length,
+			match_threshold: matchThreshold,
+			match_count: matchCount,
+			min_content_length: minContentLength,
 		});
 
 	if (matchError) {

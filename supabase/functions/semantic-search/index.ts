@@ -18,6 +18,12 @@ serve(async (req) => {
 	const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 	const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
 	const OPENAI_KEY = Deno.env.get("OPENAI_KEY");
+
+	// Semantic Search Settings
+	const SEMANTIC_MATCH_THRESHOLD = parseFloat(Deno.env.get("MATCH_THRESHOLD") ?? "0.78");
+	const SEMANTIC_MATCH_COUNT = parseInt(Deno.env.get("MATCH_COUNT") ?? "10");
+	const SEMANTIC_MIN_CONTENT_LENGTH = parseInt(Deno.env.get("MATCH_COUNT") ?? "50");
+
 	const { query } = await req.json();
 
 	if (SUPABASE_URL && SUPABASE_ANON_KEY) {
@@ -58,7 +64,10 @@ serve(async (req) => {
 	const documentSections = await semanticSearch(
 		supabaseClient,
 		openai,
-		query
+		query,
+		SEMANTIC_MATCH_THRESHOLD,
+		SEMANTIC_MATCH_COUNT,
+		SEMANTIC_MIN_CONTENT_LENGTH
 	);
 
 	console.log(documentSections)

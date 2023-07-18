@@ -7,15 +7,22 @@ import { Configuration, OpenAIApi, CreateModerationResponse } from "https://esm.
 
 import { generativeSearch } from "shared/search.ts";
 
+
+
 serve(async (req) => {
 	let supabaseClient: SupabaseClient;
 	let openai: OpenAIApi;
 
-  // API Configs
+	// API Configs
 	const SUPABASE_URL = Deno.env.get("SUPABASE_URL");
 	const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY");
 	const OPENAI_KEY = Deno.env.get("OPENAI_KEY");
-  const PROMPT_INTRO = Deno.env.get("PROMPT_INTRO")
+	const PROMPT_INTRO = Deno.env.get("PROMPT_INTRO")
+
+	// Semantic Search Settings
+	const GENERATIVE_MATCH_THRESHOLD = parseFloat(Deno.env.get("MATCH_THRESHOLD") ?? "0.78");
+	const GENERATIVE_MATCH_COUNT = parseInt(Deno.env.get("MATCH_COUNT") ?? "10");
+	const GENERATIVE_MIN_CONTENT_LENGTH = parseInt(Deno.env.get("MATCH_COUNT") ?? "50");
 
 	const { query } = await req.json();
 
@@ -40,9 +47,9 @@ serve(async (req) => {
 		throw new Error("Missing OpenAI Key!");
 	}
 
-  if (!PROMPT_INTRO) {
-    throw new Error("No prompt intro provided! This is not the user's fault.")
-  }
+	if (!PROMPT_INTRO) {
+		throw new Error("No prompt intro provided! This is not the user's fault.")
+	}
 
 	// Sanitize input query
 	// Moderate the content to comply with OpenAI T&C
@@ -60,7 +67,10 @@ serve(async (req) => {
 		supabaseClient,
 		openai,
 		query,
-    PROMPT_INTRO
+		PROMPT_INTRO,
+		GENERATIVE_MATCH_THRESHOLD,
+		GENERATIVE_MATCH_COUNT,
+		GENERATIVE_MIN_CONTENT_LENGTH
 	);
 
 	return new Response(JSON.stringify(answer), {
