@@ -28,7 +28,6 @@
 		"gpt-tokenizer": "^2.1.1",
 		"openai": "^3.3.0",
 		"openai-edge": "^1.2.0",
-		"typed.js": "^2.0.16",
-		"yaml": "^2.3.1"
+		"typed.js": "^2.0.16"
 	}
 }

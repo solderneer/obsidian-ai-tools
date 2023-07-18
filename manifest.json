@@ -6,6 +6,5 @@
 	"description": "Adding powerful semantic search, generative answers, and other AI tools to Obsidian, using Supabase + OpenAI.",
 	"author": "solderneer",
 	"authorUrl": "https://solderneer.me",
-	"fundingUrl": "",
 	"isDesktopOnly": "true"
 }

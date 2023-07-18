@@ -1,6 +1,6 @@
-import * as yaml from "yaml";
 import * as path from "path";
 
+import {parseYaml} from "obsidian";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { OpenAIApi } from "openai-edge";
 import { createHash } from "crypto";
@@ -202,8 +202,10 @@ function parseMarkdown(markdown: string): {
 	if (match && match[1]) {
 		const frontmatterString = match[1];
 		try {
-			frontmatter = yaml.parse(frontmatterString); // Use yaml.parse() to parse YAML frontmatter
+			frontmatter = parseYaml(frontmatterString);
 			content = content.replace(match[0], ""); // Remove frontmatter from content
+			console.log(frontmatter)
+			console.log(content)
 		} catch (error) {
 			console.error(`Error parsing frontmatter: ${error}`);
 		}

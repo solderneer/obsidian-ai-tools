@@ -10,7 +10,7 @@ import { Configuration, OpenAIApi } from "openai-edge";
 
 // Local things
 import { generateEmbeddings } from "./generate-embeddings";
-import { generativeSearch, semanticSearch } from "./semantic-search";
+import { generativeSearch, semanticSearch } from "./search";
 import { truncateString, removeMarkdown } from "./utils";
 
 interface ObsidianAISettings {
@@ -61,7 +61,6 @@ export default class ObsidianAIPlugin extends Plugin {
 				this.settings.supabaseKey === ""
 			)
 		) {
-			console.log("Creating supabase client!");
 			this.supabaseClient = createClient(
 				this.settings.supabaseUrl,
 				this.settings.supabaseKey,
@@ -74,9 +73,6 @@ export default class ObsidianAIPlugin extends Plugin {
 			);
 		}
 
-		console.log(this.supabaseClient);
-		console.log(this.openai);
-
 		if (!(this.supabaseClient && this.openai)) {
 			this.statusBarItemEl.setText("❓[AI] Missing API variables");
 		} else {
@@ -87,15 +83,11 @@ export default class ObsidianAIPlugin extends Plugin {
 	setupOpenai() {
 		this.openai = null;
 		if (!(this.settings.openaiKey === "")) {
-			console.log("Creating openai client!");
 			const configuration = new Configuration({
 				apiKey: this.settings.openaiKey,
 			});
 			this.openai = new OpenAIApi(configuration);
 		}
-
-		console.log(this.supabaseClient);
-		console.log(this.openai);
 
 		if (!(this.supabaseClient && this.openai)) {
 			this.statusBarItemEl.setText("❓[AI] Missing API variables");
@@ -135,7 +127,7 @@ export default class ObsidianAIPlugin extends Plugin {
 							this.statusBarItemEl.setText("✨ [AI] Loaded");
 						})
 						.catch((err) => {
-							console.log(err);
+							console.error(err);
 							this.statusBarItemEl.setText("😔 [AI] Error");
 						});
 				}
@@ -181,7 +173,7 @@ export default class ObsidianAIPlugin extends Plugin {
 								this.statusBarItemEl.setText("✨ [AI] Loaded");
 							})
 							.catch((err) => {
-								console.log(err);
+								console.error(err);
 								this.statusBarItemEl.setText("😔 [AI] Error");
 							});
 					}
@@ -239,35 +231,45 @@ class AISearchModal extends SuggestModal<SearchResult> {
 		this.openai = openai;
 		this.prompt = prompt;
 
-		const modalInstruction = `
-		<div class="prompt-instructions">
-			<div class="prompt-instruction"><span class="prompt-instruction-command">↑↓</span><span>to navigate</span></div>
-			<div class="prompt-instruction"><span class="prompt-instruction-command">↵</span><span>to open</span></div>
-			<div class="prompt-instruction"><span class="prompt-instruction-command">shift ↵</span><span>to ask</span></div>
-			<div class="prompt-instruction"><span class="prompt-instruction-command">esc</span><span>to dismiss</span></div>
-		</div>`;
-
 		// Adding the instructions
-		const modalInstructionsHTML = document.createElement("div");
-		modalInstructionsHTML.addClass("prompt-instructions");
-		modalInstructionsHTML.innerHTML = modalInstruction;
-		this.modalEl.append(modalInstructionsHTML);
+		const instructions = [
+			["↑↓", "to navigate"],
+			["↵", "to open"],
+			["shift ↵", "to ask"],
+			["esc", "to dismiss"],
+		];
+		const modalInstructionsHTML = this.modalEl.createEl("div", {
+			cls: "prompt-instructions",
+		});
+		for (const instruction of instructions) {
+			const modalInstructionHTML = modalInstructionsHTML.createDiv({
+				cls: "prompt-instruction",
+			});
+			modalInstructionHTML.createSpan({
+				cls: "prompt-instruction-command",
+				text: instruction[0],
+			});
+			modalInstructionHTML.createSpan({ text: instruction[1] });
+		}
 
 		// Adding the generative answer section
 		const leadingPromptHTML = document.createElement("div");
-		const leadingTemplate = `
-		<div class="prompt-subheading">
-			Answer box
-		</div>
-		<div class="prompt-answer">
-			<span id="answer">press shift ↵ to generate answer</span>
-		</div>
-		<div class="prompt-subheading">
-			Search results
-		</div>
-		`;
 		leadingPromptHTML.addClass("prompt-leading");
-		leadingPromptHTML.innerHTML = leadingTemplate;
+		leadingPromptHTML.createDiv({
+			cls: "prompt-subheading",
+			text: "Answer box",
+		});
+		const promptAnswerHTML = leadingPromptHTML.createDiv({
+			cls: "prompt-answer",
+		});
+		promptAnswerHTML.createSpan({
+			cls: "obsidian-ai-tools-answer",
+			text: "press shift ↵ to generate answer",
+		});
+		leadingPromptHTML.createDiv({
+			cls: "prompt-subheading",
+			text: "Search Results",
+		});
 		this.resultContainerEl.before(leadingPromptHTML);
 
 		// Setting the placeholder
@@ -281,8 +283,11 @@ class AISearchModal extends SuggestModal<SearchResult> {
 					this.typedInstance.destroy();
 				}
 
-				const answerHTML = document.querySelector("#answer")!;
-				answerHTML.innerHTML = "Thinking...";
+				this.typedInstance = new Typed(".obsidian-ai-tools-answer", {
+					strings: ["Thinking..."],
+					typeSpeed: 50,
+					showCursor: false,
+				});
 
 				// Get prompt input
 				const inputEl = document.querySelector(
@@ -296,7 +301,10 @@ class AISearchModal extends SuggestModal<SearchResult> {
 					this.prompt
 				);
 
-				this.typedInstance = new Typed("#answer", {
+				if (this.typedInstance) {
+					this.typedInstance.destroy();
+				}
+				this.typedInstance = new Typed(".obsidian-ai-tools-answer", {
 					strings: [answer ?? "No answer"],
 					typeSpeed: 50,
 					showCursor: false,
