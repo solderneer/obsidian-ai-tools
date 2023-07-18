@@ -1,7 +1,6 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import {
 	OpenAIApi,
-	CreateModerationResponse,
 	CreateEmbeddingResponse,
 	ChatCompletionRequestMessage,
 } from "openai-edge";
@@ -12,26 +11,18 @@ export async function generativeSearch(
 	supabaseClient: SupabaseClient,
 	openai: OpenAIApi,
 	query: string,
-	promptIntro: string
+	promptIntro: string,
+	matchThreshold = 0.78,
+	matchCount = 10,
+	minContentLength = 50
 ) {
-	// Moderate the content to comply with OpenAI T&C
-	let sanitizedQuery = "";
-	sanitizedQuery = query.trim();
-	const moderationResponse: CreateModerationResponse = await openai
-		.createModeration({ input: sanitizedQuery })
-		.then((res) => res.json());
-
-	const [results] = moderationResponse.results;
-
-	if (results.flagged) {
-		throw new Error("Flagged content");
-	}
-
 	const matches = await semanticSearch(
 		supabaseClient,
 		openai,
-		sanitizedQuery,
-		false
+		query,
+		matchThreshold,
+		matchCount,
+		minContentLength
 	);
 
 	// Only send 1500 tokens maximum
@@ -58,7 +49,7 @@ export async function generativeSearch(
       ${contextText}
 
       Question: """
-      ${sanitizedQuery}
+      ${query}
       """
 
       Answer:`;
@@ -81,29 +72,14 @@ export async function semanticSearch(
 	supabaseClient: SupabaseClient,
 	openai: OpenAIApi,
 	query: string,
-	sanitize = true
+	matchThreshold = 0.78,
+	matchCount = 10,
+	minContentLength = 50
 ) {
-	// Moderate the content to comply with OpenAI T&C
-	let sanitizedQuery = "";
-	if (sanitize) {
-		sanitizedQuery = query.trim();
-		const moderationResponse: CreateModerationResponse = await openai
-			.createModeration({ input: sanitizedQuery })
-			.then((res) => res.json());
-
-		const [results] = moderationResponse.results;
-
-		if (results.flagged) {
-			throw new Error("Flagged content");
-		}
-	} else {
-		sanitizedQuery = query;
-	}
-
 	// Create embedding from query
 	const embeddingResponse = await openai.createEmbedding({
 		model: "text-embedding-ada-002",
-		input: sanitizedQuery.split("\n").join(" "),
+		input: query.split("\n").join(" "),
 	});
 
 	if (embeddingResponse.status !== 200) {
@@ -117,9 +93,9 @@ export async function semanticSearch(
 	const { error: matchError, data: documentSections } =
 		await supabaseClient.rpc("match_document_sections", {
 			embedding,
-			match_threshold: 0.78,
-			match_count: 10,
-			min_content_length: 50,
+			match_threshold: matchThreshold,
+			match_count: matchCount,
+			min_content_length: minContentLength,
 		});
 
 	if (matchError) {

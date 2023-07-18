@@ -6,12 +6,22 @@ import * as path from "path";
 import { oneLine } from "common-tags";
 
 import { createClient, SupabaseClient } from "@supabase/supabase-js";
-import { Configuration, OpenAIApi } from "openai-edge";
+import {
+	Configuration,
+	OpenAIApi,
+	CreateModerationResponse,
+} from "openai-edge";
 
 // Local things
 import { generateEmbeddings } from "./generate-embeddings";
-import { generativeSearch, semanticSearch } from "./semantic-search";
+import { generativeSearch, semanticSearch } from "./search";
 import { truncateString, removeMarkdown } from "./utils";
+
+interface SearchSettings {
+	matchThreshold: number;
+	matchCount: number;
+	minContentLength: number;
+}
 
 interface ObsidianAISettings {
 	supabaseUrl: string;
@@ -19,13 +29,17 @@ interface ObsidianAISettings {
 	openaiKey: string;
 	indexOnOpen: boolean;
 
+	// Directory settings
 	excludedDirs: string;
 	excludedDirsList: string[];
-
 	publicDirs: string;
 	publicDirsList: string[];
 
+	// Prompt injection
 	prompt: string;
+
+	semanticSearch: SearchSettings;
+	generativeSearch: SearchSettings;
 }
 
 const DEFAULT_SETTINGS: ObsidianAISettings = {
@@ -45,6 +59,18 @@ const DEFAULT_SETTINGS: ObsidianAISettings = {
 		the following sections from your notes, answer the question with the provided information. If
 		you are unsure, and the notes don't include relevant information, you may also say
 		"Sorry, I don't know the answer to this question :("`,
+
+	semanticSearch: {
+		matchThreshold: 0.78,
+		matchCount: 10,
+		minContentLength: 50,
+	},
+
+	generativeSearch: {
+		matchThreshold: 0.78,
+		matchCount: 10,
+		minContentLength: 50,
+	},
 };
 
 export default class ObsidianAIPlugin extends Plugin {
@@ -61,7 +87,6 @@ export default class ObsidianAIPlugin extends Plugin {
 				this.settings.supabaseKey === ""
 			)
 		) {
-			console.log("Creating supabase client!");
 			this.supabaseClient = createClient(
 				this.settings.supabaseUrl,
 				this.settings.supabaseKey,
@@ -74,9 +99,6 @@ export default class ObsidianAIPlugin extends Plugin {
 			);
 		}
 
-		console.log(this.supabaseClient);
-		console.log(this.openai);
-
 		if (!(this.supabaseClient && this.openai)) {
 			this.statusBarItemEl.setText("❓[AI] Missing API variables");
 		} else {
@@ -87,15 +109,11 @@ export default class ObsidianAIPlugin extends Plugin {
 	setupOpenai() {
 		this.openai = null;
 		if (!(this.settings.openaiKey === "")) {
-			console.log("Creating openai client!");
 			const configuration = new Configuration({
 				apiKey: this.settings.openaiKey,
 			});
 			this.openai = new OpenAIApi(configuration);
 		}
-
-		console.log(this.supabaseClient);
-		console.log(this.openai);
 
 		if (!(this.supabaseClient && this.openai)) {
 			this.statusBarItemEl.setText("❓[AI] Missing API variables");
@@ -135,7 +153,7 @@ export default class ObsidianAIPlugin extends Plugin {
 							this.statusBarItemEl.setText("✨ [AI] Loaded");
 						})
 						.catch((err) => {
-							console.log(err);
+							console.error(err);
 							this.statusBarItemEl.setText("😔 [AI] Error");
 						});
 				}
@@ -153,7 +171,9 @@ export default class ObsidianAIPlugin extends Plugin {
 							this.app,
 							this.supabaseClient,
 							this.openai,
-							this.settings.prompt
+							this.settings.prompt,
+							this.settings.semanticSearch,
+							this.settings.generativeSearch
 						).open();
 					}
 
@@ -181,7 +201,7 @@ export default class ObsidianAIPlugin extends Plugin {
 								this.statusBarItemEl.setText("✨ [AI] Loaded");
 							})
 							.catch((err) => {
-								console.log(err);
+								console.error(err);
 								this.statusBarItemEl.setText("😔 [AI] Error");
 							});
 					}
@@ -220,54 +240,72 @@ interface SearchResult {
 	similarity: string;
 }
 
+type KeyListener = (event: KeyboardEvent) => void;
+
 class AISearchModal extends SuggestModal<SearchResult> {
-	private keyListener: any;
+	private keyListener: KeyListener;
 	private supabaseClient: SupabaseClient;
 	private prompt: string;
 	private typedInstance: Typed;
 	private openai: OpenAIApi;
+	private semanticSearchSettings: SearchSettings;
+	private generativeSearchSettings: SearchSettings;
 
 	constructor(
 		app: App,
 		supabaseClient: SupabaseClient,
 		openai: OpenAIApi,
-		prompt: string
+		prompt: string,
+		semanticSearchSettings: SearchSettings,
+		generativeSearchSettings: SearchSettings
 	) {
 		super(app);
 
 		this.supabaseClient = supabaseClient;
 		this.openai = openai;
 		this.prompt = prompt;
-
-		const modalInstruction = `
-		<div class="prompt-instructions">
-			<div class="prompt-instruction"><span class="prompt-instruction-command">↑↓</span><span>to navigate</span></div>
-			<div class="prompt-instruction"><span class="prompt-instruction-command">↵</span><span>to open</span></div>
-			<div class="prompt-instruction"><span class="prompt-instruction-command">shift ↵</span><span>to ask</span></div>
-			<div class="prompt-instruction"><span class="prompt-instruction-command">esc</span><span>to dismiss</span></div>
-		</div>`;
+		this.semanticSearchSettings = semanticSearchSettings;
+		this.generativeSearchSettings = generativeSearchSettings;
 
 		// Adding the instructions
-		const modalInstructionsHTML = document.createElement("div");
-		modalInstructionsHTML.addClass("prompt-instructions");
-		modalInstructionsHTML.innerHTML = modalInstruction;
-		this.modalEl.append(modalInstructionsHTML);
+		const instructions = [
+			["↑↓", "to navigate"],
+			["↵", "to open"],
+			["shift ↵", "to ask"],
+			["esc", "to dismiss"],
+		];
+		const modalInstructionsHTML = this.modalEl.createEl("div", {
+			cls: "prompt-instructions",
+		});
+		for (const instruction of instructions) {
+			const modalInstructionHTML = modalInstructionsHTML.createDiv({
+				cls: "prompt-instruction",
+			});
+			modalInstructionHTML.createSpan({
+				cls: "prompt-instruction-command",
+				text: instruction[0],
+			});
+			modalInstructionHTML.createSpan({ text: instruction[1] });
+		}
 
 		// Adding the generative answer section
 		const leadingPromptHTML = document.createElement("div");
-		const leadingTemplate = `
-		<div class="prompt-subheading">
-			Answer box
-		</div>
-		<div class="prompt-answer">
-			<span id="answer">press shift ↵ to generate answer</span>
-		</div>
-		<div class="prompt-subheading">
-			Search results
-		</div>
-		`;
 		leadingPromptHTML.addClass("prompt-leading");
-		leadingPromptHTML.innerHTML = leadingTemplate;
+		leadingPromptHTML.createDiv({
+			cls: "prompt-subheading",
+			text: "Answer box",
+		});
+		const promptAnswerHTML = leadingPromptHTML.createDiv({
+			cls: "prompt-answer",
+		});
+		promptAnswerHTML.createSpan({
+			cls: "obsidian-ai-tools-answer",
+			text: "press shift ↵ to generate answer",
+		});
+		leadingPromptHTML.createDiv({
+			cls: "prompt-subheading",
+			text: "Search Results",
+		});
 		this.resultContainerEl.before(leadingPromptHTML);
 
 		// Setting the placeholder
@@ -281,22 +319,45 @@ class AISearchModal extends SuggestModal<SearchResult> {
 					this.typedInstance.destroy();
 				}
 
-				const answerHTML = document.querySelector("#answer")!;
-				answerHTML.innerHTML = "Thinking...";
+				this.typedInstance = new Typed(".obsidian-ai-tools-answer", {
+					strings: ["Thinking..."],
+					typeSpeed: 50,
+					showCursor: false,
+				});
 
 				// Get prompt input
 				const inputEl = document.querySelector(
 					".prompt-input"
 				) as HTMLInputElement;
 
+				const query = inputEl.value;
+				// Sanitize input query
+				// Moderate the content to comply with OpenAI T&C
+				const moderationResponse: CreateModerationResponse =
+					await this.openai
+						.createModeration({ input: query.trim() })
+						.then((res) => res.json());
+
+				const [moderationRes] = moderationResponse.results;
+
+				if (moderationRes.flagged) {
+					throw new Error("Flagged content");
+				}
+
 				const answer = await generativeSearch(
 					this.supabaseClient,
 					this.openai,
-					inputEl.value,
-					this.prompt
+					query,
+					this.prompt,
+					this.generativeSearchSettings.matchThreshold,
+					this.generativeSearchSettings.matchCount,
+					this.generativeSearchSettings.minContentLength
 				);
 
-				this.typedInstance = new Typed("#answer", {
+				if (this.typedInstance) {
+					this.typedInstance.destroy();
+				}
+				this.typedInstance = new Typed(".obsidian-ai-tools-answer", {
 					strings: [answer ?? "No answer"],
 					typeSpeed: 50,
 					showCursor: false,
@@ -317,10 +378,25 @@ class AISearchModal extends SuggestModal<SearchResult> {
 
 	// Returns all available suggestions.
 	async getSuggestions(query: string): Promise<SearchResult[]> {
+		// Sanitize input query
+		// Moderate the content to comply with OpenAI T&C
+		const moderationResponse: CreateModerationResponse = await this.openai
+			.createModeration({ input: query.trim() })
+			.then((res) => res.json());
+
+		const [moderationRes] = moderationResponse.results;
+
+		if (moderationRes.flagged) {
+			throw new Error("Flagged content");
+		}
+
 		const results: SearchResult[] = await semanticSearch(
 			this.supabaseClient,
 			this.openai,
-			query
+			query,
+			this.semanticSearchSettings.matchThreshold,
+			this.semanticSearchSettings.matchCount,
+			this.semanticSearchSettings.minContentLength
 		);
 		return results;
 	}
@@ -463,5 +539,127 @@ class SettingTab extends PluginSettingTab {
 					this.plugin.setupOpenai();
 				})
 		);
+
+		containerEl.createEl("div", {
+			cls: "setting-item setting-item-heading",
+			text: "Semantic Search Settings",
+		});
+
+		new Setting(containerEl)
+			.setName("Match Threshold")
+			.setDesc(
+				"The minimum similarity score to return a match (between 0 and 1)"
+			)
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter number")
+					.setValue(
+						this.plugin.settings.semanticSearch.matchThreshold.toString()
+					)
+					.onChange(async (value) => {
+						if (!isNaN(parseInt(value))) {
+							this.plugin.settings.semanticSearch.matchThreshold =
+								parseFloat(value);
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Match Count")
+			.setDesc("The maximum number of results to return")
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter integer")
+					.setValue(
+						this.plugin.settings.semanticSearch.matchCount.toString()
+					)
+					.onChange(async (value) => {
+						if (!isNaN(parseInt(value))) {
+							this.plugin.settings.semanticSearch.matchCount =
+								parseInt(value);
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Min Content Length")
+			.setDesc("The minimum length for valid result string")
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter integer")
+					.setValue(
+						this.plugin.settings.semanticSearch.minContentLength.toString()
+					)
+					.onChange(async (value) => {
+						if (!isNaN(parseInt(value))) {
+							this.plugin.settings.semanticSearch.minContentLength =
+								parseInt(value);
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+
+		containerEl.createEl("div", {
+			cls: "setting-item setting-item-heading",
+			text: "Generative Search Settings",
+		});
+
+		new Setting(containerEl)
+			.setName("Match Threshold")
+			.setDesc(
+				"The minimum similarity score to return a match (between 0 and 1)"
+			)
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter number")
+					.setValue(
+						this.plugin.settings.generativeSearch.matchThreshold.toString()
+					)
+					.onChange(async (value) => {
+						if (!isNaN(parseInt(value))) {
+							this.plugin.settings.generativeSearch.matchThreshold =
+								parseFloat(value);
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Match Count")
+			.setDesc("The maximum number of results to return")
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter integer")
+					.setValue(
+						this.plugin.settings.generativeSearch.matchCount.toString()
+					)
+					.onChange(async (value) => {
+						if (!isNaN(parseInt(value))) {
+							this.plugin.settings.generativeSearch.matchCount =
+								parseInt(value);
+							await this.plugin.saveSettings();
+						}
+					})
+			);
+
+		new Setting(containerEl)
+			.setName("Min Content Length")
+			.setDesc("The minimum length for valid result string")
+			.addText((text) =>
+				text
+					.setPlaceholder("Enter integer")
+					.setValue(
+						this.plugin.settings.generativeSearch.minContentLength.toString()
+					)
+					.onChange(async (value) => {
+						if (!isNaN(parseInt(value))) {
+							this.plugin.settings.generativeSearch.minContentLength =
+								parseInt(value);
+							await this.plugin.saveSettings();
+						}
+					})
+			);
 	}
 }

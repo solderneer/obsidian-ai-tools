@@ -10,9 +10,9 @@ Powered by [Supabase Vector](https://supabase.com/vector) and the [OpenAI API](h
 - ✅ Semantic search over your notes
 - ✅ Talk to your notes
 - ✅ Simple unified UI
+- ✅ Public endpoint to allow others to talk to your notes
   
 ## Wishlist
-- Public endpoint for others to talk to selected notes **(working on it!)**
 - Suggest related notes to link to the active note
 - Suggest tags for note
 - Hybrid search with keyword and semantic matching
