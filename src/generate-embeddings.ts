@@ -1,6 +1,6 @@
 import * as path from "path";
 
-import { parseYaml } from "obsidian";
+import { TFile, parseYaml } from "obsidian";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { OpenAIApi } from "openai-edge";
 import { createHash } from "crypto";
@@ -9,6 +9,7 @@ interface EmbeddingResult {
 	successCount: number
 	updatedCount: number
 	errorCount: number
+	deleteCount: number
 }
 
 export async function generateEmbeddings(
@@ -17,11 +18,11 @@ export async function generateEmbeddings(
 	excludeDirs: string[],
 	publicDirs: string[],
 	debug?: boolean
-) : Promise<EmbeddingResult> {
+): Promise<EmbeddingResult> {
 	// Retrieve non-excluded markdown files
-	const files = this.app.vault
+	const files: TFile[] = this.app.vault
 		.getMarkdownFiles()
-		.filter((file: any) => !isFileInDirectories(file.path, excludeDirs));
+		.filter((file: TFile) => !isFileInDirectories(file.path, excludeDirs));
 
 
 	if (debug)
@@ -30,7 +31,8 @@ export async function generateEmbeddings(
 	const embeddingResult: EmbeddingResult = {
 		successCount: 0,
 		updatedCount: 0,
-		errorCount: 0
+		errorCount: 0,
+		deleteCount: 0
 	};
 
 	for (const file of files) {
@@ -45,6 +47,7 @@ export async function generateEmbeddings(
 					.maybeSingle();
 
 			if (fetchDocumentError) {
+				console.error(fetchDocumentError);
 				throw fetchDocumentError;
 			}
 
@@ -72,6 +75,7 @@ export async function generateEmbeddings(
 						.update({ public: isPublic })
 						.filter("id", "eq", existingDocument.id);
 					if (updateDocumentError) {
+						console.error(updateDocumentError);
 						throw updateDocumentError;
 					}
 
@@ -94,6 +98,7 @@ export async function generateEmbeddings(
 						.filter("document_id", "eq", existingDocument.id);
 
 				if (deleteDocumentSectionError) {
+					console.error(deleteDocumentSectionError);
 					throw deleteDocumentSectionError;
 				}
 			}
@@ -122,6 +127,7 @@ export async function generateEmbeddings(
 					.single();
 
 			if (upsertPageError) {
+				console.error(upsertPageError);
 				throw upsertPageError;
 			}
 
@@ -140,6 +146,7 @@ export async function generateEmbeddings(
 					});
 
 					if (embeddingResponse.status !== 200) {
+						console.error("Embedding Failed!")
 						throw new Error("Embedding failed");
 					}
 
@@ -159,6 +166,7 @@ export async function generateEmbeddings(
 							.single();
 
 					if (insertDocumentSectionError) {
+						console.error(insertDocumentSectionError);
 						throw insertDocumentSectionError;
 					}
 				} catch (err) {
@@ -192,11 +200,51 @@ export async function generateEmbeddings(
 			console.error(
 				`Page '${file.path}' or one/multiple of its page sections failed to store properly. Page has been marked with null checksum to indicate that it needs to be re-generated.`
 			);
-			console.error(err);
 			embeddingResult.errorCount += 1;
 		}
 	}
 
+	// Find and delete dangling files which have been deleted in obsidian.
+	const { error: fetchDocumentError, data: existingDocuments } =
+		await supabaseClient
+			.from("document")
+			.select("id, path, checksum, public");
+	
+			console.log(existingDocuments);
+			console.log(files);
+
+	if (fetchDocumentError) {
+		embeddingResult.errorCount += 1;
+		console.error(
+			`Unable to retrieve all documents to find dangling documents!`
+		);
+		console.error(fetchDocumentError);
+	} else {
+
+		for (const document of existingDocuments) {
+			console.log((files.find((file) => file.path === document.path)) !== undefined);
+			if (files.find((file) => file.path === document.path)) {
+				// Means that the file is found
+				continue;
+			}
+
+			// Delete the extra file
+			const { error: deleteDocumentError } = await supabaseClient
+				.from("document")
+				.delete()
+				.eq('path', document.path);
+
+			if (deleteDocumentError) {
+				embeddingResult.errorCount += 1;
+				console.error(
+					`Unable to delete dangling documents at path ${document.path}`
+				);
+				console.error(deleteDocumentError);
+			}
+
+			embeddingResult.deleteCount += 1;
+		}
+	}
 	return embeddingResult;
 }
 

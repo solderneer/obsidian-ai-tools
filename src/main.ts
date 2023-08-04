@@ -152,11 +152,10 @@ export default class ObsidianAIPlugin extends Plugin {
 						.then((result) => {
 							if (result.errorCount == 0) {
 								this.statusBarItemEl.setText("✨ [AI] Loaded");
-								console.log("I HET HERE")
-								new Notice(`Successfully indexed ${result.successCount} documents with ${result.updatedCount} updates!`);
+								new Notice(`Successfully indexed ${result.successCount} documents with ${result.updatedCount} updates! Removed ${result.deleteCount} deleted documents.`);
 							} else {
 								this.statusBarItemEl.setText("😔 [AI] Error");
-								new Notice(`There were indexing errors in ${result.errorCount} documents! View developer console for more information.`);
+								new Notice(`There were ${result.errorCount} errors! View developer console for more information.`);
 							}
 						});
 				}
@@ -203,10 +202,10 @@ export default class ObsidianAIPlugin extends Plugin {
 						.then((result) => {
 							if (result.errorCount == 0) {
 								this.statusBarItemEl.setText("✨ [AI] Loaded");
-								new Notice(`Successfully indexed ${result.successCount} documents with ${result.updatedCount} updates!`);
+								new Notice(`Successfully indexed ${result.successCount} documents with ${result.updatedCount} updates! Removed ${result.deleteCount} deleted documents.`);
 							} else {
 								this.statusBarItemEl.setText("😔 [AI] Error");
-								new Notice(`There were indexing errors in ${result.errorCount} documents! View developer console for more information.`);
+								new Notice(`There were ${result.errorCount} errors! View developer console for more information.`);
 							}
 						});
 					}
@@ -365,7 +364,7 @@ class AISearchModal extends SuggestModal<SearchResult> {
 					}
 					this.typedInstance = new Typed(".obsidian-ai-tools-answer", {
 						strings: [answer ?? "No answer"],
-						typeSpeed: 50,
+						typeSpeed: 75,
 						showCursor: false,
 					});
 
