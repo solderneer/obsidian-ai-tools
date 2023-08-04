@@ -1,4 +1,4 @@
-import { App, SuggestModal, Plugin, PluginSettingTab, Setting } from "obsidian";
+import { App, SuggestModal, Plugin, PluginSettingTab, Setting, Notice } from "obsidian";
 
 import Typed from "typed.js";
 import * as path from "path";
@@ -149,12 +149,14 @@ export default class ObsidianAIPlugin extends Plugin {
 						this.settings.excludedDirsList,
 						this.settings.publicDirsList
 					)
-						.then(() => {
-							this.statusBarItemEl.setText("✨ [AI] Loaded");
-						})
-						.catch((err) => {
-							console.error(err);
-							this.statusBarItemEl.setText("😔 [AI] Error");
+						.then((result) => {
+							if (result.errorCount == 0) {
+								this.statusBarItemEl.setText("✨ [AI] Loaded");
+								new Notice(`Successfully indexed ${result.successCount} documents with ${result.updatedCount} updates! Removed ${result.deleteCount} deleted documents.`);
+							} else {
+								this.statusBarItemEl.setText("😔 [AI] Error");
+								new Notice(`There were ${result.errorCount} errors! View developer console for more information.`);
+							}
 						});
 				}
 			});
@@ -197,13 +199,15 @@ export default class ObsidianAIPlugin extends Plugin {
 							this.settings.excludedDirsList,
 							this.settings.publicDirsList
 						)
-							.then(() => {
+						.then((result) => {
+							if (result.errorCount == 0) {
 								this.statusBarItemEl.setText("✨ [AI] Loaded");
-							})
-							.catch((err) => {
-								console.error(err);
+								new Notice(`Successfully indexed ${result.successCount} documents with ${result.updatedCount} updates! Removed ${result.deleteCount} deleted documents.`);
+							} else {
 								this.statusBarItemEl.setText("😔 [AI] Error");
-							});
+								new Notice(`There were ${result.errorCount} errors! View developer console for more information.`);
+							}
+						});
 					}
 
 					return true;
@@ -214,7 +218,7 @@ export default class ObsidianAIPlugin extends Plugin {
 		});
 	}
 
-	onunload() {}
+	onunload() { }
 
 	async loadSettings() {
 		this.settings = Object.assign(
@@ -344,24 +348,29 @@ class AISearchModal extends SuggestModal<SearchResult> {
 					throw new Error("Flagged content");
 				}
 
-				const answer = await generativeSearch(
-					this.supabaseClient,
-					this.openai,
-					query,
-					this.prompt,
-					this.generativeSearchSettings.matchThreshold,
-					this.generativeSearchSettings.matchCount,
-					this.generativeSearchSettings.minContentLength
-				);
+				try {
+					const answer = await generativeSearch(
+						this.supabaseClient,
+						this.openai,
+						query,
+						this.prompt,
+						this.generativeSearchSettings.matchThreshold,
+						this.generativeSearchSettings.matchCount,
+						this.generativeSearchSettings.minContentLength
+					);
 
-				if (this.typedInstance) {
-					this.typedInstance.destroy();
+					if (this.typedInstance) {
+						this.typedInstance.destroy();
+					}
+					this.typedInstance = new Typed(".obsidian-ai-tools-answer", {
+						strings: [answer ?? "No answer"],
+						typeSpeed: 75,
+						showCursor: false,
+					});
+
+				} catch(err) {
+					new Notice(`Error: ${err.message}`);
 				}
-				this.typedInstance = new Typed(".obsidian-ai-tools-answer", {
-					strings: [answer ?? "No answer"],
-					typeSpeed: 50,
-					showCursor: false,
-				});
 			}
 		};
 
@@ -390,15 +399,20 @@ class AISearchModal extends SuggestModal<SearchResult> {
 			throw new Error("Flagged content");
 		}
 
-		const results: SearchResult[] = await semanticSearch(
-			this.supabaseClient,
-			this.openai,
-			query,
-			this.semanticSearchSettings.matchThreshold,
-			this.semanticSearchSettings.matchCount,
-			this.semanticSearchSettings.minContentLength
-		);
-		return results;
+		try {
+			const results: SearchResult[] = await semanticSearch(
+				this.supabaseClient,
+				this.openai,
+				query,
+				this.semanticSearchSettings.matchThreshold,
+				this.semanticSearchSettings.matchCount,
+				this.semanticSearchSettings.minContentLength
+			);
+			return results;
+		} catch(err) {
+			new Notice(`Error: ${err.message}`);
+			return [];
+		}
 	}
 
 	// Renders each suggestion item.

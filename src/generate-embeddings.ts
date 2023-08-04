@@ -1,22 +1,39 @@
 import * as path from "path";
 
-import {parseYaml} from "obsidian";
+import { TFile, parseYaml } from "obsidian";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { OpenAIApi } from "openai-edge";
 import { createHash } from "crypto";
+
+interface EmbeddingResult {
+	successCount: number
+	updatedCount: number
+	errorCount: number
+	deleteCount: number
+}
 
 export async function generateEmbeddings(
 	supabaseClient: SupabaseClient,
 	openai: OpenAIApi,
 	excludeDirs: string[],
-	publicDirs: string[]
-) {
+	publicDirs: string[],
+	debug?: boolean
+): Promise<EmbeddingResult> {
 	// Retrieve non-excluded markdown files
-	const files = this.app.vault
+	const files: TFile[] = this.app.vault
 		.getMarkdownFiles()
-		.filter((file: any) => !isFileInDirectories(file.path, excludeDirs));
+		.filter((file: TFile) => !isFileInDirectories(file.path, excludeDirs));
 
-	console.log(files);
+
+	if (debug)
+		console.log(files);
+
+	const embeddingResult: EmbeddingResult = {
+		successCount: 0,
+		updatedCount: 0,
+		errorCount: 0,
+		deleteCount: 0
+	};
 
 	for (const file of files) {
 		try {
@@ -30,6 +47,7 @@ export async function generateEmbeddings(
 					.maybeSingle();
 
 			if (fetchDocumentError) {
+				console.error(fetchDocumentError);
 				throw fetchDocumentError;
 			}
 
@@ -44,27 +62,34 @@ export async function generateEmbeddings(
 
 			if (existingDocument?.checksum === checksum) {
 				// Check if the document access is correct
-				if (existingDocument.public === isPublic) continue;
-				else {
+				if (existingDocument.public === isPublic) {
+					embeddingResult.successCount += 1;
+					continue;
+				} else {
 					// Update document access
-					console.log(
-						`Updating file access: ${file.path}, setting public to ${isPublic}`
-					);
+					if (debug)
+						console.log(`Updating file access: ${file.path}, setting public to ${isPublic}`);
+
 					const { error: updateDocumentError } = await supabaseClient
 						.from("document")
 						.update({ public: isPublic })
 						.filter("id", "eq", existingDocument.id);
 					if (updateDocumentError) {
+						console.error(updateDocumentError);
 						throw updateDocumentError;
 					}
 
+					embeddingResult.successCount += 1;
+					embeddingResult.updatedCount += 1;
 					continue;
 				}
 			}
 
 			// If existing page exists but has changed, then delete existing sections and reindex file
 			if (existingDocument) {
-				console.log(`Reindexing file: ${file.path}`);
+
+				if (debug)
+					console.log(`Reindexing file: ${file.path}`);
 
 				const { error: deleteDocumentSectionError } =
 					await supabaseClient
@@ -73,6 +98,7 @@ export async function generateEmbeddings(
 						.filter("document_id", "eq", existingDocument.id);
 
 				if (deleteDocumentSectionError) {
+					console.error(deleteDocumentSectionError);
 					throw deleteDocumentSectionError;
 				}
 			}
@@ -101,12 +127,15 @@ export async function generateEmbeddings(
 					.single();
 
 			if (upsertPageError) {
+				console.error(upsertPageError);
 				throw upsertPageError;
 			}
 
-			console.log(
-				`[${file.path}] Adding ${sections.length} page sections (with embeddings)`
-			);
+			if (debug)
+				console.log(
+					`[${file.path}] Adding ${sections.length} page sections (with embeddings)`
+				);
+
 			for (const section of sections) {
 				// OpenAI recommends replacing newlines with spaces for best results (specific to embeddings)
 				const input = section.replace(/\n/g, " ");
@@ -117,6 +146,7 @@ export async function generateEmbeddings(
 					});
 
 					if (embeddingResponse.status !== 200) {
+						console.error("Embedding Failed!")
 						throw new Error("Embedding failed");
 					}
 
@@ -136,13 +166,13 @@ export async function generateEmbeddings(
 							.single();
 
 					if (insertDocumentSectionError) {
+						console.error(insertDocumentSectionError);
 						throw insertDocumentSectionError;
 					}
 				} catch (err) {
 					// TODO: decide how to better handle failed embeddings
 					console.error(
-						`Failed to generate embeddings for '${
-							file.path
+						`Failed to generate embeddings for '${file.path
 						}' page section starting with '${input.slice(
 							0,
 							40
@@ -162,14 +192,60 @@ export async function generateEmbeddings(
 			if (updatePageError) {
 				throw updatePageError;
 			}
+
+			embeddingResult.successCount += 1;
+			embeddingResult.updatedCount += 1;
+
 		} catch (err) {
 			console.error(
 				`Page '${file.path}' or one/multiple of its page sections failed to store properly. Page has been marked with null checksum to indicate that it needs to be re-generated.`
 			);
-			console.error(err);
-			throw err;
+			embeddingResult.errorCount += 1;
 		}
 	}
+
+	// Find and delete dangling files which have been deleted in obsidian.
+	const { error: fetchDocumentError, data: existingDocuments } =
+		await supabaseClient
+			.from("document")
+			.select("id, path, checksum, public");
+	
+			console.log(existingDocuments);
+			console.log(files);
+
+	if (fetchDocumentError) {
+		embeddingResult.errorCount += 1;
+		console.error(
+			`Unable to retrieve all documents to find dangling documents!`
+		);
+		console.error(fetchDocumentError);
+	} else {
+
+		for (const document of existingDocuments) {
+			console.log((files.find((file) => file.path === document.path)) !== undefined);
+			if (files.find((file) => file.path === document.path)) {
+				// Means that the file is found
+				continue;
+			}
+
+			// Delete the extra file
+			const { error: deleteDocumentError } = await supabaseClient
+				.from("document")
+				.delete()
+				.eq('path', document.path);
+
+			if (deleteDocumentError) {
+				embeddingResult.errorCount += 1;
+				console.error(
+					`Unable to delete dangling documents at path ${document.path}`
+				);
+				console.error(deleteDocumentError);
+			}
+
+			embeddingResult.deleteCount += 1;
+		}
+	}
+	return embeddingResult;
 }
 
 function isFileInDirectories(filePath: string, directories: string[]): boolean {
@@ -204,8 +280,6 @@ function parseMarkdown(markdown: string): {
 		try {
 			frontmatter = parseYaml(frontmatterString);
 			content = content.replace(match[0], ""); // Remove frontmatter from content
-			console.log(frontmatter)
-			console.log(content)
 		} catch (error) {
 			console.error(`Error parsing frontmatter: ${error}`);
 		}
