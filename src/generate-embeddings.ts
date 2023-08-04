@@ -1,22 +1,37 @@
 import * as path from "path";
 
-import {parseYaml} from "obsidian";
+import { parseYaml } from "obsidian";
 import { SupabaseClient } from "@supabase/supabase-js";
 import { OpenAIApi } from "openai-edge";
 import { createHash } from "crypto";
+
+interface EmbeddingResult {
+	successCount: number
+	updatedCount: number
+	errorCount: number
+}
 
 export async function generateEmbeddings(
 	supabaseClient: SupabaseClient,
 	openai: OpenAIApi,
 	excludeDirs: string[],
-	publicDirs: string[]
-) {
+	publicDirs: string[],
+	debug?: boolean
+) : Promise<EmbeddingResult> {
 	// Retrieve non-excluded markdown files
 	const files = this.app.vault
 		.getMarkdownFiles()
 		.filter((file: any) => !isFileInDirectories(file.path, excludeDirs));
 
-	console.log(files);
+
+	if (debug)
+		console.log(files);
+
+	const embeddingResult: EmbeddingResult = {
+		successCount: 0,
+		updatedCount: 0,
+		errorCount: 0
+	};
 
 	for (const file of files) {
 		try {
@@ -44,12 +59,14 @@ export async function generateEmbeddings(
 
 			if (existingDocument?.checksum === checksum) {
 				// Check if the document access is correct
-				if (existingDocument.public === isPublic) continue;
-				else {
+				if (existingDocument.public === isPublic) {
+					embeddingResult.successCount += 1;
+					continue;
+				} else {
 					// Update document access
-					console.log(
-						`Updating file access: ${file.path}, setting public to ${isPublic}`
-					);
+					if (debug)
+						console.log(`Updating file access: ${file.path}, setting public to ${isPublic}`);
+
 					const { error: updateDocumentError } = await supabaseClient
 						.from("document")
 						.update({ public: isPublic })
@@ -58,13 +75,17 @@ export async function generateEmbeddings(
 						throw updateDocumentError;
 					}
 
+					embeddingResult.successCount += 1;
+					embeddingResult.updatedCount += 1;
 					continue;
 				}
 			}
 
 			// If existing page exists but has changed, then delete existing sections and reindex file
 			if (existingDocument) {
-				console.log(`Reindexing file: ${file.path}`);
+
+				if (debug)
+					console.log(`Reindexing file: ${file.path}`);
 
 				const { error: deleteDocumentSectionError } =
 					await supabaseClient
@@ -104,9 +125,11 @@ export async function generateEmbeddings(
 				throw upsertPageError;
 			}
 
-			console.log(
-				`[${file.path}] Adding ${sections.length} page sections (with embeddings)`
-			);
+			if (debug)
+				console.log(
+					`[${file.path}] Adding ${sections.length} page sections (with embeddings)`
+				);
+
 			for (const section of sections) {
 				// OpenAI recommends replacing newlines with spaces for best results (specific to embeddings)
 				const input = section.replace(/\n/g, " ");
@@ -141,8 +164,7 @@ export async function generateEmbeddings(
 				} catch (err) {
 					// TODO: decide how to better handle failed embeddings
 					console.error(
-						`Failed to generate embeddings for '${
-							file.path
+						`Failed to generate embeddings for '${file.path
 						}' page section starting with '${input.slice(
 							0,
 							40
@@ -162,14 +184,20 @@ export async function generateEmbeddings(
 			if (updatePageError) {
 				throw updatePageError;
 			}
+
+			embeddingResult.successCount += 1;
+			embeddingResult.updatedCount += 1;
+
 		} catch (err) {
 			console.error(
 				`Page '${file.path}' or one/multiple of its page sections failed to store properly. Page has been marked with null checksum to indicate that it needs to be re-generated.`
 			);
 			console.error(err);
-			throw err;
+			embeddingResult.errorCount += 1;
 		}
 	}
+
+	return embeddingResult;
 }
 
 function isFileInDirectories(filePath: string, directories: string[]): boolean {
@@ -204,8 +232,6 @@ function parseMarkdown(markdown: string): {
 		try {
 			frontmatter = parseYaml(frontmatterString);
 			content = content.replace(match[0], ""); // Remove frontmatter from content
-			console.log(frontmatter)
-			console.log(content)
 		} catch (error) {
 			console.error(`Error parsing frontmatter: ${error}`);
 		}
