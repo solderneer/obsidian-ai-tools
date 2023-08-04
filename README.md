@@ -69,7 +69,7 @@ _Manually_
 #### Install the plugin
 
 _From Community Plugins_
-This plugin is now available directly from within the Obsidian Community Plugins. Navigate to Settings > Community Plugins > Browse, and then search `AI Tools` to find and install it. Alternatively, [click here](obsidian://show-plugin?id=ai-tools). You can then proceed on to the setup section below. 
+This plugin is now available directly from within the Obsidian Community Plugins. Navigate to Settings > Community Plugins > Browse, and then search `AI Tools` to find and install it. Alternatively, [click here](https://obsidian.md/plugins?id=ai-tools). You can then proceed on to the setup section below. 
 
 _Manually_
 
