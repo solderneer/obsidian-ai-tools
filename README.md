@@ -19,6 +19,8 @@ Powered by [Supabase Vector](https://supabase.com/vector) and the [OpenAI API](h
 - Natural language querying of frontmatter with SQL translation
 - (and I dream of more and more!)
 
+If you have any requests, let me know by opening an issue :)
+
 ## Demo
 ![](demo.gif)
 
@@ -53,6 +55,10 @@ _Using Supabase CLI_
    ```bash
    supabase db push
    ```
+6. Deploy supabase functions if you want to create a public endpoint for the public documents.
+   ```bash
+   supabase functions deploy
+   ```
 
 _Manually_
 
@@ -61,6 +67,11 @@ _Manually_
 3. Run the query and verify if the **Table Editor** now shows two tables, `document` and `document_section`.
 
 #### Install the plugin
+
+_From Community Plugins_
+This plugin is now available directly from within the Obsidian Community Plugins. Navigate to Settings > Community Plugins > Browse, and then search `AI Tools` to find and install it. Alternatively, [click here](obsidian://show-plugin?id=ai-tools). You can then proceed on to the setup section below. 
+
+_Manually_
 
 1. Go to the [latest release](https://github.com/solderneer/obsidian-ai/releases), and download `main.js`, `manifest.json` and `styles.css`.
 2. Copy them into your obsidian vault in a new folder, `VaultFolder/.obsidian/plugins/obsidian-id/`.
@@ -83,6 +94,7 @@ _Manually_
 
 1. Press `Cmd/Ctrl + p` and search for `Obsidian AI: AI Search`.
 2. Select the command and the unified UI modal will appear!
+3. I recommend configuring a hot key for the AI Search, I personally use `Cmd + a`.
 
 ---
 
