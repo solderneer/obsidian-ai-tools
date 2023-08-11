@@ -247,7 +247,8 @@ interface SearchResult {
 type KeyListener = (event: KeyboardEvent) => void;
 
 class AISearchModal extends SuggestModal<SearchResult> {
-	private keyListener: KeyListener;
+	private triggerChatListener: KeyListener;
+	private chatSendListener: KeyListener;
 	private prompt: string;
 	private mode = "search";
 
@@ -321,20 +322,66 @@ class AISearchModal extends SuggestModal<SearchResult> {
 		chatContainerHTML.addClass("chat-container");
 		chatContainerHTML.style.display = "none";
 
-		chatContainerHTML.createEl("button", {cls: "chat-back-button", text: "←"});
-		chatContainerHTML.createDiv({cls: "chat-messages"});
+		const backButton = chatContainerHTML.createEl("button", {cls: "chat-back-button", text: "←"});
+		const messageContainer = chatContainerHTML.createDiv({cls: "chat-messages"});
 		const chatInputContainer = chatContainerHTML.createDiv({cls: "chat-input-container"});
-		chatInputContainer.createEl("input", {type: "search", cls: "chat-input", placeholder: "Type your message..."});
+		const chatInput = chatInputContainer.createEl("input", {type: "search", cls: "chat-input", placeholder: "Type your message..."});
 		this.resultContainerEl.before(chatContainerHTML);
+
+		const backButtonListener = async (_: MouseEvent) => {
+			// Register AI chat handlers
+			const promptInput = document.querySelector(".prompt-input-container") as HTMLElement;
+			const promptLeading = document.querySelector(".prompt-leading") as HTMLElement;
+			const promptResults = document.querySelector(".prompt-results") as HTMLElement;
+
+			promptInput.style.display = "block";
+			promptLeading.style.display = "block";
+			promptResults.style.display = "block";
+			chatContainerHTML.style.display = "none";
+
+			document.removeEventListener("click", backButtonListener);
+			document.removeEventListener("keydown", this.chatSendListener);
+			document.addEventListener("keydown", this.triggerChatListener);
+		};
+
+		backButton.addEventListener("click", backButtonListener);
+
+		const addMessage = (sender: string, text: string) => {
+			const messageDiv = document.createElement("div");
+			messageDiv.className = "message"
+
+			const messageSender = document.createElement("div");
+			messageSender.className = "message-sender";
+			messageSender.textContent = sender;
+		
+			const messageText = document.createElement("div");
+			messageText.className = "message-text";
+			messageText.textContent = text;
+		
+			messageDiv.appendChild(messageSender);
+			messageDiv.appendChild(messageText);
+		
+			messageContainer.appendChild(messageDiv);
+		}
+
+		this.chatSendListener = (event: KeyboardEvent) => {
+			if (event.shiftKey && event.key === "Enter") {
+				const message = chatInput.value.trim();
+				if (message !== "") {
+				addMessage("You:", message);
+				chatInput.value = "";
+				}
+			}
+		};
 
 		// Setting the placeholder
 		this.setPlaceholder("Enter query to ✨ AI ✨ search...");
 	}
 
 	onOpen(): void {
-		this.keyListener = async (event: KeyboardEvent) => {
+		this.triggerChatListener = async (event: KeyboardEvent) => {
 			if (event.shiftKey && event.key === "Enter") {
-
+				console.log("Hello!");
 				// Mode switch to AI mode
 				this.mode = "ai";
 
@@ -342,32 +389,26 @@ class AISearchModal extends SuggestModal<SearchResult> {
 				const promptInput = document.querySelector(".prompt-input-container") as HTMLElement;
 				const promptLeading = document.querySelector(".prompt-leading") as HTMLElement;
 				const promptResults = document.querySelector(".prompt-results") as HTMLElement;
-				const chatContainer = document.querySelector(".chat-container") as HTMLElement;
 
 				promptInput.style.display = "none";
 				promptLeading.style.display = "none";
 				promptResults.style.display = "none";
+
+				// Enable chat boxes
+				const chatContainer = document.querySelector(".chat-container") as HTMLElement;
 				chatContainer.style.display = "block";
 
-				// Register back button
-				const backButton = document.querySelector(".chat-back-button") as HTMLElement;
-				const backButtonListener = async (_: MouseEvent) => {
-					promptInput.style.display = "block";
-					promptLeading.style.display = "block";
-					promptResults.style.display = "block";
-					chatContainer.style.display = "none";
-
-					document.removeEventListener("click", backButtonListener);
-				};
-				backButton.addEventListener("click", backButtonListener);
+				document.removeEventListener("keydown", this.triggerChatListener);
+				document.addEventListener("keydown", this.chatSendListener);
 			}
 		};
 
-		document.addEventListener("keydown", this.keyListener);
+		document.addEventListener("keydown", this.triggerChatListener);
 	}
 
 	onClose(): void {
-		document.removeEventListener("keydown", this.keyListener);
+		document.removeEventListener("keydown", this.chatSendListener);
+		document.removeEventListener("keydown", this.triggerChatListener);
 	}
 
 	// Returns all available suggestions.

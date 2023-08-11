@@ -57,12 +57,37 @@ If your plugin does not need CSS, delete this file.
 
 .chat-messages {
 	height: 400px;
+	display: flex;
+  	justify-content: end;
+	flex-direction: column;
+}
+
+.message {
+	color: var(--text-accent);
+	margin-top: var(--size-2-1);
+	margin-bottom: var(--size-2-1);
+}
+
+.message.me {
+	color: var(--text-muted);
+}
+
+.message-sender {
+	font-weight: var(--font-medium);
+}
+
+.message-text {
+	padding: var(--size-4-2) var(--size-4-2);
+}
+
+.message-text:hover {
+	background-color: var(--background-primary-alt);
 }
 
 .chat-input {
 	flex-grow: 1;
 	border: none;
-	
+
 	font-size: var(--font-ui-larger) !important;
 	padding: var(--size-4-3) !important;
 	height: auto !important;
