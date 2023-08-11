@@ -248,10 +248,14 @@ type KeyListener = (event: KeyboardEvent) => void;
 
 class AISearchModal extends SuggestModal<SearchResult> {
 	private keyListener: KeyListener;
-	private supabaseClient: SupabaseClient;
 	private prompt: string;
-	private typedInstance: Typed;
+	private mode = "search";
+
+	// APIs
+	private supabaseClient: SupabaseClient;
 	private openai: OpenAIApi;
+
+	// Settings
 	private semanticSearchSettings: SearchSettings;
 	private generativeSearchSettings: SearchSettings;
 
@@ -312,6 +316,17 @@ class AISearchModal extends SuggestModal<SearchResult> {
 		});
 		this.resultContainerEl.before(leadingPromptHTML);
 
+		// Programmatically build the AI chat interface
+		const chatContainerHTML = document.createElement("div");
+		chatContainerHTML.addClass("chat-container");
+		chatContainerHTML.style.display = "none";
+
+		chatContainerHTML.createEl("button", {cls: "chat-back-button", text: "←"});
+		chatContainerHTML.createDiv({cls: "chat-messages"});
+		const chatInputContainer = chatContainerHTML.createDiv({cls: "chat-input-container"});
+		chatInputContainer.createEl("input", {type: "search", cls: "chat-input", placeholder: "Type your message..."});
+		this.resultContainerEl.before(chatContainerHTML);
+
 		// Setting the placeholder
 		this.setPlaceholder("Enter query to ✨ AI ✨ search...");
 	}
@@ -319,58 +334,32 @@ class AISearchModal extends SuggestModal<SearchResult> {
 	onOpen(): void {
 		this.keyListener = async (event: KeyboardEvent) => {
 			if (event.shiftKey && event.key === "Enter") {
-				if (this.typedInstance) {
-					this.typedInstance.destroy();
-				}
 
-				this.typedInstance = new Typed(".obsidian-ai-tools-answer", {
-					strings: ["Thinking..."],
-					typeSpeed: 50,
-					showCursor: false,
-				});
+				// Mode switch to AI mode
+				this.mode = "ai";
 
-				// Get prompt input
-				const inputEl = document.querySelector(
-					".prompt-input"
-				) as HTMLInputElement;
+				// Disable answer boxes
+				const promptInput = document.querySelector(".prompt-input-container") as HTMLElement;
+				const promptLeading = document.querySelector(".prompt-leading") as HTMLElement;
+				const promptResults = document.querySelector(".prompt-results") as HTMLElement;
+				const chatContainer = document.querySelector(".chat-container") as HTMLElement;
 
-				const query = inputEl.value;
-				// Sanitize input query
-				// Moderate the content to comply with OpenAI T&C
-				const moderationResponse: CreateModerationResponse =
-					await this.openai
-						.createModeration({ input: query.trim() })
-						.then((res) => res.json());
+				promptInput.style.display = "none";
+				promptLeading.style.display = "none";
+				promptResults.style.display = "none";
+				chatContainer.style.display = "block";
 
-				const [moderationRes] = moderationResponse.results;
+				// Register back button
+				const backButton = document.querySelector(".chat-back-button") as HTMLElement;
+				const backButtonListener = async (_: MouseEvent) => {
+					promptInput.style.display = "block";
+					promptLeading.style.display = "block";
+					promptResults.style.display = "block";
+					chatContainer.style.display = "none";
 
-				if (moderationRes.flagged) {
-					throw new Error("Flagged content");
-				}
-
-				try {
-					const answer = await generativeSearch(
-						this.supabaseClient,
-						this.openai,
-						query,
-						this.prompt,
-						this.generativeSearchSettings.matchThreshold,
-						this.generativeSearchSettings.matchCount,
-						this.generativeSearchSettings.minContentLength
-					);
-
-					if (this.typedInstance) {
-						this.typedInstance.destroy();
-					}
-					this.typedInstance = new Typed(".obsidian-ai-tools-answer", {
-						strings: [answer ?? "No answer"],
-						typeSpeed: 75,
-						showCursor: false,
-					});
-
-				} catch(err) {
-					new Notice(`Error: ${err.message}`);
-				}
+					document.removeEventListener("click", backButtonListener);
+				};
+				backButton.addEventListener("click", backButtonListener);
 			}
 		};
 
@@ -378,10 +367,6 @@ class AISearchModal extends SuggestModal<SearchResult> {
 	}
 
 	onClose(): void {
-		// Kill old typed instance if any
-		if (this.typedInstance) {
-			this.typedInstance.destroy();
-		}
 		document.removeEventListener("keydown", this.keyListener);
 	}
 
