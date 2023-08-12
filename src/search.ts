@@ -11,7 +11,7 @@ export async function generativeSearch(
 	supabaseClient: SupabaseClient,
 	openai: OpenAIApi,
 	query: string,
-	promptIntro: string,
+	messageHistory: ChatCompletionRequestMessage[],
 	matchThreshold = 0.78,
 	matchCount = 10,
 	minContentLength = 50
@@ -43,8 +43,6 @@ export async function generativeSearch(
 	}
 
 	const prompt = codeBlock`
-      ${promptIntro}
-
       Context sections:
       ${contextText}
 
@@ -59,9 +57,11 @@ export async function generativeSearch(
 		content: prompt,
 	};
 
+	messageHistory.push(chatMessage);
+
 	const response = await openai.createChatCompletion({
 		model: "gpt-3.5-turbo",
-		messages: [chatMessage],
+		messages: messageHistory,
 	});
 
 	const responseJson = await response.json();

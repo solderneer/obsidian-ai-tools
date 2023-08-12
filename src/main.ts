@@ -1,6 +1,5 @@
 import { App, SuggestModal, Plugin, PluginSettingTab, Setting, Notice } from "obsidian";
 
-import Typed from "typed.js";
 import * as path from "path";
 
 import { oneLine } from "common-tags";
@@ -10,6 +9,7 @@ import {
 	Configuration,
 	OpenAIApi,
 	CreateModerationResponse,
+	ChatCompletionRequestMessage
 } from "openai-edge";
 
 // Local things
@@ -250,7 +250,6 @@ class AISearchModal extends SuggestModal<SearchResult> {
 	private triggerChatListener: KeyListener;
 	private chatSendListener: KeyListener;
 	private prompt: string;
-	private mode = "search";
 
 	// APIs
 	private supabaseClient: SupabaseClient;
@@ -348,11 +347,11 @@ class AISearchModal extends SuggestModal<SearchResult> {
 
 		const addMessage = (sender: string, text: string) => {
 			const messageDiv = document.createElement("div");
-			messageDiv.className = "message"
+			messageDiv.className = "message " + sender
 
 			const messageSender = document.createElement("div");
 			messageSender.className = "message-sender";
-			messageSender.textContent = sender;
+			messageSender.textContent = sender + ':';
 		
 			const messageText = document.createElement("div");
 			messageText.className = "message-text";
@@ -364,12 +363,23 @@ class AISearchModal extends SuggestModal<SearchResult> {
 			messageContainer.appendChild(messageDiv);
 		}
 
-		this.chatSendListener = (event: KeyboardEvent) => {
+		// Setting up the API call context
+		const messageHistory: ChatCompletionRequestMessage[] = [];
+		messageHistory.push({role: "system", content: this.prompt});
+
+		this.chatSendListener = async (event: KeyboardEvent) => {
 			if (event.shiftKey && event.key === "Enter") {
 				const message = chatInput.value.trim();
 				if (message !== "") {
-				addMessage("You:", message);
-				chatInput.value = "";
+					addMessage("you", message);
+					chatInput.value = "";
+
+					const res = await generativeSearch(this.supabaseClient, this.openai, message, messageHistory, this.generativeSearchSettings.matchThreshold,
+						this.generativeSearchSettings.matchCount,
+						this.generativeSearchSettings.minContentLength)
+					
+					addMessage("assistant", res);
+					messageHistory.push({role: "assistant", content: res});
 				}
 			}
 		};
@@ -382,8 +392,6 @@ class AISearchModal extends SuggestModal<SearchResult> {
 		this.triggerChatListener = async (event: KeyboardEvent) => {
 			if (event.shiftKey && event.key === "Enter") {
 				console.log("Hello!");
-				// Mode switch to AI mode
-				this.mode = "ai";
 
 				// Disable answer boxes
 				const promptInput = document.querySelector(".prompt-input-container") as HTMLElement;

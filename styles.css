@@ -56,10 +56,14 @@ If your plugin does not need CSS, delete this file.
 }
 
 .chat-messages {
-	height: 400px;
+	max-height: 400px;
 	display: flex;
   	justify-content: end;
 	flex-direction: column;
+
+	overflow-y: auto;
+	scroll-behavior: smooth;
+	margin-top: var(--size-4-3);
 }
 
 .message {
@@ -68,7 +72,7 @@ If your plugin does not need CSS, delete this file.
 	margin-bottom: var(--size-2-1);
 }
 
-.message.me {
+.message.you {
 	color: var(--text-muted);
 }
 
